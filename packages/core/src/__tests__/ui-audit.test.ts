@@ -168,4 +168,32 @@ describe('auditUI overlap and scroll reach', () => {
     const tall = viewport([element({ ...scroller, absoluteCanvasSize: { x: 200, y: 130 } }), lastRow, cardInRow]);
     expect(codes(tall).filter((code) => code.startsWith('content_beyond_scroll'))).toEqual([]);
   });
+
+  test('efficiently processes large UI trees without performance degradation', () => {
+    const largeTree: RawUIElement[] = [
+      element({ ref: 'root', path: 'game.Root', className: 'Frame', absolutePosition: { x: 0, y: 0 }, absoluteSize: { x: 1000, y: 1000 } }),
+    ];
+    // Build 250 nested/sibling UI elements
+    for (let i = 0; i < 250; i += 1) {
+      const parentRef = i === 0 ? 'root' : `item-${Math.floor(i / 5)}`;
+      const ref = `item-${i}`;
+      const isText = i % 2 === 0;
+      largeTree.push(element({
+        ref,
+        path: `game.Root.Item${i}`,
+        parentRef,
+        className: isText ? 'TextLabel' : 'Frame',
+        absolutePosition: { x: (i % 10) * 80, y: Math.floor(i / 10) * 30 },
+        absoluteSize: { x: 75, y: 25 },
+        ...(isText ? { text: `Item ${i}`, textBounds: { x: 50, y: 14 }, textFits: true } : {}),
+      }));
+    }
+
+    const start = performance.now();
+    const result = viewport(largeTree);
+    const durationMs = performance.now() - start;
+
+    expect(result.success).toBe(true);
+    expect(durationMs).toBeLessThan(100);
+  });
 });

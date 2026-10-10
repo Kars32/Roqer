@@ -1,0 +1,3 @@
+## 2025-05-18 - Memoizing UI Tree Ancestor Chains and Bounding Box Rejection in UI Audit
+**Learning:** In UI hierarchy audits (`auditUI`), checking text overlap across $N$ UI elements involves $O(N^2)$ candidate pairs. Repeatedly calling `chain(element)` re-creates ancestor arrays and executes $O(D)$ linear searches on every pair comparison, leading to thousands of redundant allocations per audit.
+**Action:** Memoize `chain(element)` arrays and `chainSet(element)` sets on the `UITree` class, cache element `textInk` and `paintedRect` results during `overlapIssues`, and apply an $O(1)$ scalar bounding box overlap check (`rectsOverlap`) before conducting tree ancestor traversals.

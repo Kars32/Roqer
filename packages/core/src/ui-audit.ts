@@ -78,6 +78,10 @@ function intersect(a: UIRect, b: UIRect): UIRect | null {
   return right > x && bottom > y ? { x, y, width: right - x, height: bottom - y } : null;
 }
 
+function rectsOverlap(a: UIRect, b: UIRect): boolean {
+  return a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
+}
+
 const areaOf = (rect: UIRect | null) => (rect === null ? 0 : rect.width * rect.height);
 
 function hasText(element: NormalizedUIElement): boolean {
@@ -110,6 +114,8 @@ function paintedRect(element: NormalizedUIElement): UIRect | null {
 
 class UITree {
   private readonly byRef = new Map<string, NormalizedUIElement>();
+  private readonly chainMap = new Map<NormalizedUIElement, NormalizedUIElement[]>();
+  private readonly chainSetMap = new Map<NormalizedUIElement, Set<NormalizedUIElement>>();
 
   constructor(readonly elements: readonly NormalizedUIElement[]) {
     for (const element of elements) if (element.ref) this.byRef.set(element.ref, element);
@@ -119,17 +125,31 @@ class UITree {
     return element.parentRef ? this.byRef.get(element.parentRef) : undefined;
   }
 
-  /** The element and its ancestors, nearest first. */
+  /** The element and its ancestors, nearest first. Memoized to avoid O(N*D) recomputations. */
   chain(element: NormalizedUIElement): NormalizedUIElement[] {
-    const chain: NormalizedUIElement[] = [];
-    for (let current: NormalizedUIElement | undefined = element; current && chain.length < 256; current = this.parent(current)) {
-      chain.push(current);
+    let cached = this.chainMap.get(element);
+    if (!cached) {
+      cached = [];
+      for (let current: NormalizedUIElement | undefined = element; current && cached.length < 256; current = this.parent(current)) {
+        cached.push(current);
+      }
+      this.chainMap.set(element, cached);
     }
-    return chain;
+    return cached;
+  }
+
+  /** Set of element and all its ancestors, memoized for O(1) ancestor checks. */
+  private chainSet(element: NormalizedUIElement): Set<NormalizedUIElement> {
+    let cached = this.chainSetMap.get(element);
+    if (!cached) {
+      cached = new Set(this.chain(element));
+      this.chainSetMap.set(element, cached);
+    }
+    return cached;
   }
 
   isAncestor(ancestor: NormalizedUIElement, element: NormalizedUIElement): boolean {
-    return this.chain(element).slice(1).includes(ancestor);
+    return ancestor !== element && this.chainSet(element).has(ancestor);
   }
 
   /**
@@ -143,7 +163,8 @@ class UITree {
   drawsAbove(upper: NormalizedUIElement, lower: NormalizedUIElement): boolean | undefined {
     const upperChain = this.chain(upper);
     const lowerChain = this.chain(lower);
-    const common = upperChain.find((node) => lowerChain.includes(node));
+    const lowerSet = this.chainSet(lower);
+    const common = upperChain.find((node) => lowerSet.has(node));
     if (!common) return undefined;
     const global = upperChain.some((node) => node.zIndexBehavior === 'Global');
     const [a, b] = global
@@ -170,25 +191,41 @@ function isShadowOf(other: NormalizedUIElement, text: NormalizedUIElement, other
 
 function overlapIssues(tree: UITree): UIAuditIssue[] {
   const issues: UIAuditIssue[] = [];
+  const textInks = new Map<NormalizedUIElement, UIRect | null>();
+  const paintedRects = new Map<NormalizedUIElement, UIRect | null>();
+
+  const getTextInk = (el: NormalizedUIElement): UIRect | null => {
+    if (!textInks.has(el)) textInks.set(el, textInk(el));
+    return textInks.get(el)!;
+  };
+
+  const getPaintedRect = (el: NormalizedUIElement): UIRect | null => {
+    if (!paintedRects.has(el)) paintedRects.set(el, paintedRect(el));
+    return paintedRects.get(el)!;
+  };
+
   for (const text of tree.elements) {
     if (!text.effectiveVisible) continue;
-    const fullInk = textInk(text);
+    const fullInk = getTextInk(text);
     const ink = fullInk && text.visibleRect ? intersect(fullInk, text.visibleRect) : null;
     if (!fullInk || !ink || areaOf(ink) < MIN_INK_AREA) continue;
     let covered: { by: NormalizedUIElement; share: number } | undefined;
     let straddled: { by: NormalizedUIElement; share: number; above: boolean | undefined } | undefined;
     for (const other of tree.elements) {
-      if (other === text || tree.isAncestor(other, text) || tree.isAncestor(text, other)) continue;
-      const otherInk = textInk(other);
-      const painted = paintedRect(other) ?? (other.effectiveVisible ? otherInk : null);
+      if (other === text) continue;
+      const otherInk = getTextInk(other);
+      const painted = getPaintedRect(other) ?? (other.effectiveVisible ? otherInk : null);
       if (!painted) continue;
-      if (otherInk && !paintedRect(other) && isShadowOf(other, text, otherInk, fullInk)) continue;
+      // Fast O(1) scalar check: skip non-overlapping elements before tree walks or shadow calculations
+      if (!rectsOverlap(ink, painted)) continue;
+      if (tree.isAncestor(other, text) || tree.isAncestor(text, other)) continue;
+      if (otherInk && !getPaintedRect(other) && isShadowOf(other, text, otherInk, fullInk)) continue;
       const share = areaOf(intersect(ink, painted)) / areaOf(ink);
       if (share < MIN_INK_SHARE) continue;
       const above = tree.drawsAbove(other, text);
       if (above === true) {
         if (!covered || share > covered.share) covered = { by: other, share };
-      } else if (paintedRect(other) && share < ON_ELEMENT_SHARE) {
+      } else if (getPaintedRect(other) && share < ON_ELEMENT_SHARE) {
         // Partly on and partly off a painted element collides whichever is on top.
         if (!straddled || share > straddled.share) straddled = { by: other, share, above };
       }
