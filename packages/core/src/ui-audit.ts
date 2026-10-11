@@ -43,14 +43,20 @@ function interactiveCandidate(element: NormalizedUIElement): boolean {
   return element.role === 'button' || element.role === 'input';
 }
 
+// Bolt optimization: Fast short-circuit string comparison instead of localeCompare.
+function compareString(a: string, b: string): number {
+  if (a === b) return 0;
+  return a < b ? -1 : 1;
+}
+
 function compareIssues(left: UIAuditIssue, right: UIAuditIssue): number {
-  const severity = left.severity.localeCompare(right.severity);
+  const severity = compareString(left.severity, right.severity);
   if (severity !== 0) return severity;
-  const code = left.code.localeCompare(right.code);
+  const code = compareString(left.code, right.code);
   if (code !== 0) return code;
-  const path = (left.path ?? '').localeCompare(right.path ?? '');
+  const path = compareString(left.path ?? '', right.path ?? '');
   if (path !== 0) return path;
-  return (left.ref ?? '').localeCompare(right.ref ?? '');
+  return compareString(left.ref ?? '', right.ref ?? '');
 }
 
 // -- Overlap -----------------------------------------------------------------
