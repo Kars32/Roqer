@@ -1,4 +1,5 @@
-import { Fragment, useMemo } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
+import { Check, Copy } from "lucide-react";
 import { parseMarkdown, type InlineNode, type MarkdownBlock } from "./markdown";
 
 /**
@@ -30,6 +31,40 @@ function Inline({ nodes }: { nodes: InlineNode[] }) {
   })}</>;
 }
 
+function CodeBlock({ block }: { block: Extract<MarkdownBlock, { type: "code" }> }) {
+  const [copied, setCopied] = useState(false);
+  useEffect(() => {
+    if (!copied) return;
+    const timer = window.setTimeout(() => setCopied(false), 2000);
+    return () => window.clearTimeout(timer);
+  }, [copied]);
+
+  const copyCode = () => {
+    if (!navigator.clipboard) return;
+    navigator.clipboard.writeText(block.value).then(
+      () => setCopied(true),
+      () => setCopied(false),
+    );
+  };
+
+  return <pre className="md-code">
+    <div className="md-code-header">
+      {block.language && <span className="md-code-language">{block.language}</span>}
+      <button
+        type="button"
+        className="md-code-copy"
+        onClick={copyCode}
+        aria-label={copied ? "Copied code" : "Copy code"}
+        title={copied ? "Copied code" : "Copy code"}
+      >
+        {copied ? <Check size={13} aria-hidden="true" /> : <Copy size={13} aria-hidden="true" />}
+        <span>{copied ? "Copied" : "Copy"}</span>
+      </button>
+    </div>
+    <code>{block.value}</code>
+  </pre>;
+}
+
 function Block({ block }: { block: MarkdownBlock }) {
   switch (block.type) {
     case "paragraph":
@@ -39,10 +74,7 @@ function Block({ block }: { block: MarkdownBlock }) {
       return <Tag><Inline nodes={block.children} /></Tag>;
     }
     case "code":
-      return <pre className="md-code">
-        {block.language && <span className="md-code-language">{block.language}</span>}
-        <code>{block.value}</code>
-      </pre>;
+      return <CodeBlock block={block} />;
     case "list":
       return block.ordered
         ? <ol>{block.items.map((item, index) => <li key={index}><Inline nodes={item} /></li>)}</ol>
