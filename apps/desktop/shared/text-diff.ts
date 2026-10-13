@@ -59,48 +59,85 @@ const DEFAULT_MAX_LINES = 240;
 const MAX_INPUT_LINES = 1_200;
 
 /**
- * Longest-common-subsequence diff. The table is filled from the end so the
- * walk forward produces changes in file order, which keeps additions and
- * removals adjacent the way a reader expects to see them.
+ * Longest-common-subsequence diff.
+ *
+ * Performance optimization: Trims identical leading prefix and trailing suffix
+ * lines before building the dynamic programming table. For small targeted edits
+ * in medium/large files (e.g. 1000 lines with a 2-line edit in the middle),
+ * this reduces table size and iterations by >100x-1000x and avoids megabytes
+ * of memory allocations per diff call.
  */
 function diffOps(before: readonly string[], after: readonly string[]): Op[] {
-  const rows = before.length;
-  const columns = after.length;
-  const width = columns + 1;
-  const table = new Int32Array((rows + 1) * width);
+  let prefixCount = 0;
+  while (
+    prefixCount < before.length &&
+    prefixCount < after.length &&
+    before[prefixCount] === after[prefixCount]
+  ) {
+    prefixCount += 1;
+  }
 
-  for (let row = rows - 1; row >= 0; row -= 1) {
-    for (let column = columns - 1; column >= 0; column -= 1) {
-      table[row * width + column] = before[row] === after[column]
-        ? table[(row + 1) * width + column + 1] + 1
-        : Math.max(table[(row + 1) * width + column], table[row * width + column + 1]);
-    }
+  let suffixCount = 0;
+  while (
+    suffixCount < before.length - prefixCount &&
+    suffixCount < after.length - prefixCount &&
+    before[before.length - 1 - suffixCount] === after[after.length - 1 - suffixCount]
+  ) {
+    suffixCount += 1;
   }
 
   const ops: Op[] = [];
-  let row = 0;
-  let column = 0;
-  while (row < rows && column < columns) {
-    if (before[row] === after[column]) {
-      ops.push({ kind: "context", text: before[row] });
+  for (let i = 0; i < prefixCount; i += 1) {
+    ops.push({ kind: "context", text: before[i] });
+  }
+
+  const midBeforeLength = before.length - prefixCount - suffixCount;
+  const midAfterLength = after.length - prefixCount - suffixCount;
+
+  if (midBeforeLength > 0 || midAfterLength > 0) {
+    const rows = midBeforeLength;
+    const columns = midAfterLength;
+    const width = columns + 1;
+    const table = new Int32Array((rows + 1) * width);
+
+    for (let row = rows - 1; row >= 0; row -= 1) {
+      for (let column = columns - 1; column >= 0; column -= 1) {
+        table[row * width + column] =
+          before[prefixCount + row] === after[prefixCount + column]
+            ? table[(row + 1) * width + column + 1] + 1
+            : Math.max(table[(row + 1) * width + column], table[row * width + column + 1]);
+      }
+    }
+
+    let row = 0;
+    let column = 0;
+    while (row < rows && column < columns) {
+      if (before[prefixCount + row] === after[prefixCount + column]) {
+        ops.push({ kind: "context", text: before[prefixCount + row] });
+        row += 1;
+        column += 1;
+      } else if (table[(row + 1) * width + column] >= table[row * width + column + 1]) {
+        ops.push({ kind: "remove", text: before[prefixCount + row] });
+        row += 1;
+      } else {
+        ops.push({ kind: "add", text: after[prefixCount + column] });
+        column += 1;
+      }
+    }
+    while (row < rows) {
+      ops.push({ kind: "remove", text: before[prefixCount + row] });
       row += 1;
-      column += 1;
-    } else if (table[(row + 1) * width + column] >= table[row * width + column + 1]) {
-      ops.push({ kind: "remove", text: before[row] });
-      row += 1;
-    } else {
-      ops.push({ kind: "add", text: after[column] });
+    }
+    while (column < columns) {
+      ops.push({ kind: "add", text: after[prefixCount + column] });
       column += 1;
     }
   }
-  while (row < rows) {
-    ops.push({ kind: "remove", text: before[row] });
-    row += 1;
+
+  for (let i = before.length - suffixCount; i < before.length; i += 1) {
+    ops.push({ kind: "context", text: before[i] });
   }
-  while (column < columns) {
-    ops.push({ kind: "add", text: after[column] });
-    column += 1;
-  }
+
   return ops;
 }
 
@@ -163,8 +200,14 @@ export function diffText(
   if (beforeLines.length > MAX_INPUT_LINES || afterLines.length > MAX_INPUT_LINES) return null;
 
   const ops = diffOps(beforeLines, afterLines);
-  const addedLines = ops.filter((op) => op.kind === "add").length;
-  const removedLines = ops.filter((op) => op.kind === "remove").length;
+
+  // Single-pass line counts to prevent unnecessary array allocations
+  let addedLines = 0;
+  let removedLines = 0;
+  for (let index = 0; index < ops.length; index += 1) {
+    if (ops[index].kind === "add") addedLines += 1;
+    else if (ops[index].kind === "remove") removedLines += 1;
+  }
 
   // A context line is worth showing only near a change; the rest are elided.
   const shown = ops.map(() => false);
