@@ -192,36 +192,83 @@ function convertScanlinesToRgba(
     );
   }
 
-  const unfiltered = Buffer.alloc(width * height * bpp);
+  // Performance optimization: Allocate uninitialized buffer and dispatch by filter
+  // type per scanline row rather than checking filter type inside the inner loop over pixels.
+  // Filter 0 (None) and row 0 of Filter 2 (Up) use fast Buffer.copy for direct memory movement.
+  const unfiltered = Buffer.allocUnsafe(stride * height);
   let srcOffset = 0;
 
   for (let y = 0; y < height; y++) {
     const filter = raw[srcOffset++];
     const rowOffset = y * stride;
-    const prevRowOffset = (y - 1) * stride;
+    const prevRowOffset = rowOffset - stride;
 
-    for (let x = 0; x < stride; x++) {
-      const value = raw[srcOffset++];
-      const left = x >= bpp ? unfiltered[rowOffset + x - bpp] : 0;
-      const up = y > 0 ? unfiltered[prevRowOffset + x] : 0;
-      const upLeft = y > 0 && x >= bpp ? unfiltered[prevRowOffset + x - bpp] : 0;
-
-      let decoded: number;
-      if (filter === 0) {
-        decoded = value;
-      } else if (filter === 1) {
-        decoded = value + left;
-      } else if (filter === 2) {
-        decoded = value + up;
-      } else if (filter === 3) {
-        decoded = value + Math.floor((left + up) / 2);
-      } else if (filter === 4) {
-        decoded = value + paethPredictor(left, up, upLeft);
-      } else {
-        throw new Error(`Unsupported PNG filter type ${filter}.`);
+    if (filter === 0) {
+      // Filter 0: None - bulk copy scanline bytes directly without per-byte looping
+      raw.copy(unfiltered, rowOffset, srcOffset, srcOffset + stride);
+      srcOffset += stride;
+    } else if (filter === 1) {
+      // Filter 1: Sub - first bpp bytes have no left pixel
+      for (let x = 0; x < bpp; x++) {
+        unfiltered[rowOffset + x] = raw[srcOffset++];
       }
-
-      unfiltered[rowOffset + x] = decoded & 0xff;
+      for (let x = bpp; x < stride; x++) {
+        unfiltered[rowOffset + x] = (raw[srcOffset++] + unfiltered[rowOffset + x - bpp]) & 0xff;
+      }
+    } else if (filter === 2) {
+      // Filter 2: Up - for y === 0, up is 0 (equivalent to None)
+      if (y === 0) {
+        raw.copy(unfiltered, rowOffset, srcOffset, srcOffset + stride);
+        srcOffset += stride;
+      } else {
+        for (let x = 0; x < stride; x++) {
+          unfiltered[rowOffset + x] = (raw[srcOffset++] + unfiltered[prevRowOffset + x]) & 0xff;
+        }
+      }
+    } else if (filter === 3) {
+      // Filter 3: Average
+      if (y === 0) {
+        for (let x = 0; x < bpp; x++) {
+          unfiltered[rowOffset + x] = raw[srcOffset++];
+        }
+        for (let x = bpp; x < stride; x++) {
+          unfiltered[rowOffset + x] = (raw[srcOffset++] + (unfiltered[rowOffset + x - bpp] >> 1)) & 0xff;
+        }
+      } else {
+        for (let x = 0; x < bpp; x++) {
+          const up = unfiltered[prevRowOffset + x];
+          unfiltered[rowOffset + x] = (raw[srcOffset++] + (up >> 1)) & 0xff;
+        }
+        for (let x = bpp; x < stride; x++) {
+          const left = unfiltered[rowOffset + x - bpp];
+          const up = unfiltered[prevRowOffset + x];
+          unfiltered[rowOffset + x] = (raw[srcOffset++] + ((left + up) >> 1)) & 0xff;
+        }
+      }
+    } else if (filter === 4) {
+      // Filter 4: Paeth
+      if (y === 0) {
+        for (let x = 0; x < bpp; x++) {
+          unfiltered[rowOffset + x] = raw[srcOffset++];
+        }
+        for (let x = bpp; x < stride; x++) {
+          const left = unfiltered[rowOffset + x - bpp];
+          unfiltered[rowOffset + x] = (raw[srcOffset++] + left) & 0xff;
+        }
+      } else {
+        for (let x = 0; x < bpp; x++) {
+          const up = unfiltered[prevRowOffset + x];
+          unfiltered[rowOffset + x] = (raw[srcOffset++] + up) & 0xff;
+        }
+        for (let x = bpp; x < stride; x++) {
+          const left = unfiltered[rowOffset + x - bpp];
+          const up = unfiltered[prevRowOffset + x];
+          const upLeft = unfiltered[prevRowOffset + x - bpp];
+          unfiltered[rowOffset + x] = (raw[srcOffset++] + paethPredictor(left, up, upLeft)) & 0xff;
+        }
+      }
+    } else {
+      throw new Error(`Unsupported PNG filter type ${filter}.`);
     }
   }
 
