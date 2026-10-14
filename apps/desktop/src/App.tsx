@@ -1319,7 +1319,7 @@ function App() {
         </div>
         <div className="sidebar-section-heading">
           <span>Projects</span>
-          <button className="icon-button dark" title="Create project" onClick={() => setDialog({ kind: "create-project" })}><FolderPlus size={17} /></button>
+          <button className="icon-button dark" title="Create project" aria-label="Create project" onClick={() => setDialog({ kind: "create-project" })}><FolderPlus size={17} /></button>
         </div>
         <button className="new-chat-button" onClick={newChat}><Plus size={18} /> New chat <span className="shortcut">{SEND_MODIFIER} N</span></button>
         <nav className="folder-list" aria-label="Project folders">
@@ -1389,8 +1389,8 @@ function App() {
           <div className="topbar-actions">
             <button className="icon-button theme-button" onClick={() => updatePreferences({ theme: theme === "light" ? "dark" : "light" })} aria-label={theme === "light" ? "Switch to dark theme" : "Switch to light theme"} title={theme === "light" ? "Dark theme" : "Light theme"}>{theme === "light" ? <Moon size={18} /> : <Sun size={18} />}</button>
             <div className="connection-wrap" ref={connectionRef}>
-              <button className={`connection-pill status-${studioStatus.kind}`} onClick={() => setShowConnection((value) => !value)}><span className="live-dot" /><span className="connection-label">{targetStudio?.name ?? (chatPinned && chatInstanceId !== null ? "This chat's place is not open" : studioStatus.placeName ?? "Roblox Studio")}</span><span className="connection-detail">{studioStatus.message}</span><ChevronDown size={15} /></button>
-              {showConnection && <div className="connection-popover"><div className="popover-title"><div className="studio-icon"><Gamepad2 size={18} /></div><div><strong>Roblox Studio</strong><span>{studioStatus.message}</span></div></div><dl><div><dt>Bridge</dt><dd>{statusLabel(studioStatus.kind)}</dd></div></dl>
+              <button className={`connection-pill status-${studioStatus.kind}`} onClick={() => setShowConnection((value) => !value)} aria-expanded={showConnection} aria-haspopup="dialog" aria-label={`Roblox Studio connection: ${targetStudio?.name ?? (chatPinned && chatInstanceId !== null ? "This chat's place is not open" : studioStatus.placeName ?? "Roblox Studio")}`}><span className="live-dot" /><span className="connection-label">{targetStudio?.name ?? (chatPinned && chatInstanceId !== null ? "This chat's place is not open" : studioStatus.placeName ?? "Roblox Studio")}</span><span className="connection-detail">{studioStatus.message}</span><ChevronDown size={15} aria-hidden="true" /></button>
+              {showConnection && <div className="connection-popover" role="dialog" aria-label="Studio connection status"><div className="popover-title"><div className="studio-icon"><Gamepad2 size={18} /></div><div><strong>Roblox Studio</strong><span>{studioStatus.message}</span></div></div><dl><div><dt>Bridge</dt><dd>{statusLabel(studioStatus.kind)}</dd></div></dl>
                 {/* Every connected place, not just the one a run happens to
                     go to. Two places open used to look identical to one. */}
                 {studios.length === 0
