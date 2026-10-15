@@ -70,6 +70,8 @@ export interface DocRecommendation {
   category: DocCategory;
   name: string;
   url: string;
+  /** Pre-normalized name used for fast string distance scoring. */
+  normalizedName?: string;
 }
 
 function normalizeDocName(value: string): string {
@@ -86,22 +88,39 @@ function queryNameVariants(value: string): string[] {
   return Array.from(variants).filter(Boolean);
 }
 
+// Reusable static buffer to prevent allocating row arrays during edit distance loops
+let editDistanceRowBuffer = new Int32Array(256);
+
 function editDistance(left: string, right: string): number {
-  const previous = Array.from({ length: right.length + 1 }, (_, index) => index);
-  for (let i = 1; i <= left.length; i++) {
-    let diagonal = previous[0];
-    previous[0] = i;
-    for (let j = 1; j <= right.length; j++) {
-      const above = previous[j];
-      previous[j] = Math.min(
-        previous[j] + 1,
-        previous[j - 1] + 1,
-        diagonal + (left[i - 1] === right[j - 1] ? 0 : 1),
+  const m = left.length;
+  const n = right.length;
+  if (n === 0) return m;
+  if (m === 0) return n;
+
+  if (n + 1 > editDistanceRowBuffer.length) {
+    editDistanceRowBuffer = new Int32Array(Math.max(n + 1, editDistanceRowBuffer.length * 2));
+  }
+
+  for (let j = 0; j <= n; j++) {
+    editDistanceRowBuffer[j] = j;
+  }
+
+  for (let i = 1; i <= m; i++) {
+    let diagonal = editDistanceRowBuffer[0];
+    editDistanceRowBuffer[0] = i;
+    const leftChar = left.charCodeAt(i - 1);
+    for (let j = 1; j <= n; j++) {
+      const above = editDistanceRowBuffer[j];
+      const cost = leftChar === right.charCodeAt(j - 1) ? 0 : 1;
+      editDistanceRowBuffer[j] = Math.min(
+        above + 1,
+        editDistanceRowBuffer[j - 1] + 1,
+        diagonal + cost,
       );
       diagonal = above;
     }
   }
-  return previous[right.length];
+  return editDistanceRowBuffer[n];
 }
 
 async function fetchDocCatalog(): Promise<DocRecommendation[]> {
@@ -131,7 +150,12 @@ async function fetchDocCatalog(): Promise<DocRecommendation[]> {
     const category = match[1] as DocCategory;
     const name = match[2];
     const key = `${category}/${name}`;
-    pages.set(key, { category, name, url: docUrl(category, name) });
+    pages.set(key, {
+      category,
+      name,
+      url: docUrl(category, name),
+      normalizedName: normalizeDocName(name),
+    });
   }
   const result = Array.from(pages.values());
   if (result.length === 0) {
@@ -148,19 +172,38 @@ export async function recommendRobloxDocs(
 ): Promise<DocRecommendation[]> {
   const variants = queryNameVariants(name);
   const catalog = await fetchDocCatalog();
-  return catalog
-    .map((page) => {
-      const candidate = normalizeDocName(page.name);
-      const similarity = Math.max(...variants.map((variant) => {
-        if (variant === candidate) return 2;
+  const scored = new Array<{ page: DocRecommendation; score: number }>(catalog.length);
+
+  for (let i = 0; i < catalog.length; i++) {
+    const page = catalog[i];
+    const candidate = page.normalizedName ?? normalizeDocName(page.name);
+    let maxSimilarity = -Infinity;
+
+    for (let v = 0; v < variants.length; v++) {
+      const variant = variants[v];
+      let sim: number;
+      if (variant === candidate) {
+        sim = 2;
+      } else {
         const distance = editDistance(variant, candidate);
-        const ratio = 1 - distance / Math.max(variant.length, candidate.length, 1);
+        const maxLen = Math.max(variant.length, candidate.length, 1);
+        const ratio = 1 - distance / maxLen;
         const prefixBonus = variant.startsWith(candidate) || candidate.startsWith(variant) ? 0.15 : 0;
         const containsBonus = variant.includes(candidate) || candidate.includes(variant) ? 0.05 : 0;
-        return ratio + prefixBonus + containsBonus;
-      }));
-      return { page, score: similarity + (page.category === category ? 0.08 : 0) };
-    })
+        sim = ratio + prefixBonus + containsBonus;
+      }
+      if (sim > maxSimilarity) {
+        maxSimilarity = sim;
+      }
+    }
+
+    scored[i] = {
+      page,
+      score: maxSimilarity + (page.category === category ? 0.08 : 0),
+    };
+  }
+
+  return scored
     .sort((a, b) => b.score - a.score || a.page.name.localeCompare(b.page.name))
     .slice(0, Math.max(1, limit))
     .map(({ page }) => page);
