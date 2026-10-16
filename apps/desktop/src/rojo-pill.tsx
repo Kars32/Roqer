@@ -92,8 +92,12 @@ export function RojoPill({ instanceId, placeName, refreshSignal }: { instanceId:
 
   return <div className="rojo-wrap" ref={wrapRef}>
     <button
+      type="button"
       className={`rojo-pill${visual.muted ? " muted" : ""}${tone !== "none" ? ` tone-${tone}` : ""}`}
       onClick={() => setOpen((value) => !value)}
+      aria-expanded={open}
+      aria-haspopup="dialog"
+      aria-label={`Rojo status: ${visual.label}`}
     >
       <span className="connection-label">{visual.label}</span>
       <ChevronDown size={15} />
@@ -126,9 +130,9 @@ export function RojoPill({ instanceId, placeName, refreshSignal }: { instanceId:
             restart, an unpublished one only lasts this Studio session. */}
         <p className="rojo-popover-subline">{rojoLinkedNote(view.published, placeName)}</p>
         {id !== null && <div className="rojo-popover-actions">
-          <button className="link-button" disabled={busy} onClick={() => void apply(() => openRojoFolder(id))}>Open folder</button>
-          <button className="link-button" disabled={busy} onClick={() => void apply(() => chooseRojoProject(id))}>Change…</button>
-          <button className="link-button danger" disabled={busy} onClick={() => void apply(() => unlinkRojoProject(id))}>Unlink</button>
+          <button type="button" className="link-button" disabled={busy} onClick={() => void apply(() => openRojoFolder(id))}>Open folder</button>
+          <button type="button" className="link-button" disabled={busy} onClick={() => void apply(() => chooseRojoProject(id))}>Change…</button>
+          <button type="button" className="link-button danger" disabled={busy} onClick={() => void apply(() => unlinkRojoProject(id))}>Unlink</button>
         </div>}
       </>}
 
@@ -138,17 +142,17 @@ export function RojoPill({ instanceId, placeName, refreshSignal }: { instanceId:
           {view.recent.slice(0, 5).map((entry) => <li key={entry.index} className="rojo-recent-row">
             <span className="rojo-recent-name" title={entry.folder}>{entry.fileName}</span>
             {id !== null &&
-              <button className="link-button" disabled={busy} onClick={() => void apply(() => linkRecentRojoProject(id, entry.index))}>Link</button>}
+              <button type="button" className="link-button" disabled={busy} onClick={() => void apply(() => linkRecentRojoProject(id, entry.index))}>Link</button>}
           </li>)}
         </ul>}
         {id !== null &&
-          <button className="link-button" disabled={busy} onClick={() => void apply(() => chooseRojoProject(id))}>Choose a project file…</button>}
+          <button type="button" className="link-button" disabled={busy} onClick={() => void apply(() => chooseRojoProject(id))}>Choose a project file…</button>}
       </>}
 
       {view.state === "error" && id !== null && <div className="rojo-popover-actions">
-        <button className="link-button" disabled={busy} onClick={() => void apply(() => retryRojoProject(id))}>Retry</button>
-        <button className="link-button" disabled={busy} onClick={() => void apply(() => chooseRojoProject(id))}>Choose…</button>
-        <button className="link-button danger" disabled={busy} onClick={() => void apply(() => forgetRojoProject(id))}>Forget</button>
+        <button type="button" className="link-button" disabled={busy} onClick={() => void apply(() => retryRojoProject(id))}>Retry</button>
+        <button type="button" className="link-button" disabled={busy} onClick={() => void apply(() => chooseRojoProject(id))}>Choose…</button>
+        <button type="button" className="link-button danger" disabled={busy} onClick={() => void apply(() => forgetRojoProject(id))}>Forget</button>
       </div>}
 
       {view.state === "no-place" && <p className="rojo-popover-subline">No place is connected.</p>}
