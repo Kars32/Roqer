@@ -110,8 +110,8 @@ export function OpenCloudSettings() {
   return <>
     <SettingsRow title="Open Cloud" detail={summary(settings)}>
       {draft === null && <>
-        {settings.hasKey && <button className="small-button" disabled={busy} onClick={() => void runCheck()}>{busy ? "Checking…" : "Check key"}</button>}
-        <button className="small-button" disabled={busy} onClick={() => { setDraft(draftFrom(settings)); setMessage(null); }}>
+        {settings.hasKey && <button type="button" className="small-button" disabled={busy} onClick={() => void runCheck()}>{busy ? "Checking…" : "Check key"}</button>}
+        <button type="button" className="small-button" disabled={busy} onClick={() => { setDraft(draftFrom(settings)); setMessage(null); }}>
           {settings.hasKey ? "Change" : "Set up"}
         </button>
       </>}
@@ -121,7 +121,7 @@ export function OpenCloudSettings() {
       <label className="custom-field"><span>API key {settings.hasKey && !draft.removeKey ? "(saved; paste a new one to replace it)" : "(from Creator Dashboard → Open Cloud → API Keys)"}</span>
         <div className="custom-key-row">
           <input type="password" value={draft.apiKey} spellCheck={false} autoComplete="off" disabled={draft.removeKey} placeholder={settings.hasKey && !draft.removeKey ? "••••••••" : "Paste the key"} onChange={(event) => setDraft({ ...draft, apiKey: event.target.value })} />
-          {settings.hasKey && <button className="small-button" onClick={() => setDraft({ ...draft, removeKey: !draft.removeKey, apiKey: "" })}>{draft.removeKey ? "Keep key" : "Remove key"}</button>}
+          {settings.hasKey && <button type="button" className="small-button" onClick={() => setDraft({ ...draft, removeKey: !draft.removeKey, apiKey: "" })}>{draft.removeKey ? "Keep key" : "Remove key"}</button>}
         </div>
       </label>
       <div className="custom-field-pair">
@@ -137,14 +137,14 @@ export function OpenCloudSettings() {
       </div>
       <p className="custom-hint">The key needs the Assets API with Write access for this user or group. Uploads are irreversible, so Roqer asks before each one unless you run in Full auto.</p>
       <div className="settings-actions">
-        <button className="small-button" disabled={busy} onClick={() => void save()}>{busy ? "Saving…" : "Save"}</button>
-        <button className="small-button" disabled={busy} onClick={() => { setDraft(null); setMessage(null); }}>Cancel</button>
+        <button type="button" className="small-button" disabled={busy} onClick={() => void save()}>{busy ? "Saving…" : "Save"}</button>
+        <button type="button" className="small-button" disabled={busy} onClick={() => { setDraft(null); setMessage(null); }}>Cancel</button>
       </div>
     </div>}
     {check !== null && draft === null && <div className={`custom-message open-cloud-check ${checkTone(check, settings)}`}>
       <p>{check.message}</p>
       {checkDetails(check) && <p className="custom-hint">{checkDetails(check)}</p>}
-      {settings.creator === null && check.authorizedUserId !== undefined && <button className="small-button" disabled={busy} onClick={() => {
+      {settings.creator === null && check.authorizedUserId !== undefined && <button type="button" className="small-button" disabled={busy} onClick={() => {
         setDraft({ ...draftFrom(settings), kind: "user", id: check.authorizedUserId! });
         setCheck(null);
       }}>Publish as user {check.authorizedUserId}</button>}
