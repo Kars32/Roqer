@@ -74,9 +74,21 @@ class JpegEncoder {
   // RGB->YUV lookup tables
   private RGB_YUV_TABLE = new Int32Array(2048);
 
-  private byteout: number[] = [];
+  // Performance optimization: Pre-allocate a contiguous Uint8Array buffer
+  // for JPEG output accumulation instead of using dynamic JS number[] array pushes,
+  // avoiding allocation churn and slow Buffer conversion for large screenshots.
+  private byteout = new Uint8Array(256 * 1024);
+  private byteoffset = 0;
   private bytenew = 0;
   private bytepos = 7;
+
+  private ensureCapacity(needed: number) {
+    if (this.byteoffset + needed > this.byteout.length) {
+      const next = new Uint8Array(Math.max(this.byteout.length * 2, this.byteoffset + needed));
+      next.set(this.byteout.subarray(0, this.byteoffset));
+      this.byteout = next;
+    }
+  }
 
   constructor(quality: number) {
     this.initHuffmanTbl();
@@ -204,7 +216,10 @@ class JpegEncoder {
   }
 
   private writeByte(value: number) {
-    this.byteout.push(value & 0xff);
+    if (this.byteoffset >= this.byteout.length) {
+      this.ensureCapacity(1);
+    }
+    this.byteout[this.byteoffset++] = value & 0xff;
   }
 
   private writeWord(value: number) {
@@ -382,7 +397,7 @@ class JpegEncoder {
   }
 
   encode(rgba: Buffer, width: number, height: number): Buffer {
-    this.byteout = [];
+    this.byteoffset = 0;
     this.bytenew = 0;
     this.bytepos = 7;
 
@@ -508,7 +523,7 @@ class JpegEncoder {
     }
     this.writeWord(0xffd9); // EOI
 
-    return Buffer.from(this.byteout);
+    return Buffer.from(this.byteout.subarray(0, this.byteoffset));
   }
 }
 
