@@ -255,6 +255,8 @@ function PreviewViewer({ images, changes, choice, index, onIndex, onClose }: {
     pictureButton.current?.focus();
   }, [index]);
 
+  const dialogRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
@@ -266,13 +268,28 @@ function PreviewViewer({ images, changes, choice, index, onIndex, onClose }: {
       } else if (event.key === "ArrowRight" && index < images.length - 1) {
         event.preventDefault();
         onIndex(index + 1);
+      } else if (event.key === "Tab" && dialogRef.current !== null) {
+        const focusables = dialogRef.current.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), [href]:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        );
+        if (focusables.length > 0) {
+          const first = focusables[0];
+          const last = focusables[focusables.length - 1];
+          if (event.shiftKey && (document.activeElement === first || !dialogRef.current.contains(document.activeElement))) {
+            event.preventDefault();
+            last.focus();
+          } else if (!event.shiftKey && (document.activeElement === last || !dialogRef.current.contains(document.activeElement))) {
+            event.preventDefault();
+            first.focus();
+          }
+        }
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [images.length, index, onClose, onIndex]);
 
-  return createPortal(<div className="preview-viewer" role="dialog" aria-modal="true" aria-label={`${current.title}, image ${index + 1} of ${images.length}`}>
+  return createPortal(<div className="preview-viewer" ref={dialogRef} role="dialog" aria-modal="true" aria-label={`${current.title}, image ${index + 1} of ${images.length}`}>
     <div className="preview-viewer-bar">
       <span className="preview-viewer-count">{index + 1} of {images.length}</span>
       <div className="preview-viewer-title">
