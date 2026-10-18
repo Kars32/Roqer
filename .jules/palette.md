@@ -1,0 +1,3 @@
+## 2025-05-18 - Screen Reader Live Announcements for Async Copy Feedback
+**Learning:** Icon-only buttons with state transitions (e.g. Copy -> Copied) updated via `aria-label` or `title` do not automatically trigger screen reader announcements when clicked. Adding a hidden `sr-only` container with `role="status"` and `aria-live="polite"` ensures assistive technologies immediately speak the feedback string (such as "Copied rbxassetid://... to clipboard") without interrupting focus.
+**Action:** Always pair visual copy feedback toggles on icon-only buttons with a polite `aria-live` status message for screen readers.

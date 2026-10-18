@@ -212,6 +212,8 @@ function UploadTile({ entry }: { entry: UploadEntry }) {
     }
     navigator.clipboard.writeText(reference).then(() => setCopied("copied"), () => setCopied("failed"));
   };
+  const copyLabel = copied === "copied" ? `Copied ${reference}` : copied === "failed" ? `Could not copy ${reference}` : `Copy ${reference}`;
+  const copyTitle = copied === "copied" ? `Copied ${reference}` : copied === "failed" ? "Could not copy" : `Copy ${reference}`;
   return <li className="upload-tile">
     <span className="upload-icon">{uploadIcon(entry.type)}</span>
     <div className="upload-text">
@@ -229,12 +231,15 @@ function UploadTile({ entry }: { entry: UploadEntry }) {
       {reference !== undefined && <button
         type="button"
         onClick={copy}
-        title={copied === "copied" ? "Copied" : copied === "failed" ? "Could not copy" : `Copy ${reference}`}
-        aria-label={copied === "copied" ? `Copied ${reference}` : `Copy ${reference}`}
+        title={copyTitle}
+        aria-label={copyLabel}
         data-state={copied}
       >
         {copied === "copied" ? <Check size={14} aria-hidden="true" /> : <Copy size={14} aria-hidden="true" />}
       </button>}
+      <span className="sr-only" role="status" aria-live="polite">
+        {copied === "copied" ? `Copied ${reference} to clipboard` : copied === "failed" ? `Failed to copy ${reference}` : ""}
+      </span>
       {entry.assetUrl !== undefined && <a href={entry.assetUrl} target="_blank" rel="noreferrer" title="Open on Roblox" aria-label={`Open ${entry.name} on Roblox`}>
         <ExternalLink size={14} aria-hidden="true" />
       </a>}
