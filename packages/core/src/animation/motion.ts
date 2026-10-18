@@ -157,22 +157,34 @@ export function rotationQuaternion(r: Frame['r']): [number, number, number, numb
 function quatFromMatrix(r: Frame['r']): Quat {
   const [m00, m01, m02, m10, m11, m12, m20, m21, m22] = r;
   const trace = m00 + m11 + m22;
-  let q: Quat;
+  let qx: number, qy: number, qz: number, qw: number;
   if (trace > 0) {
     const s = Math.sqrt(trace + 1) * 2;
-    q = [(m21 - m12) / s, (m02 - m20) / s, (m10 - m01) / s, s / 4];
+    qx = (m21 - m12) / s;
+    qy = (m02 - m20) / s;
+    qz = (m10 - m01) / s;
+    qw = s / 4;
   } else if (m00 > m11 && m00 > m22) {
     const s = Math.sqrt(1 + m00 - m11 - m22) * 2;
-    q = [s / 4, (m01 + m10) / s, (m02 + m20) / s, (m21 - m12) / s];
+    qx = s / 4;
+    qy = (m01 + m10) / s;
+    qz = (m02 + m20) / s;
+    qw = (m21 - m12) / s;
   } else if (m11 > m22) {
     const s = Math.sqrt(1 + m11 - m00 - m22) * 2;
-    q = [(m01 + m10) / s, s / 4, (m12 + m21) / s, (m02 - m20) / s];
+    qx = (m01 + m10) / s;
+    qy = s / 4;
+    qz = (m12 + m21) / s;
+    qw = (m02 - m20) / s;
   } else {
     const s = Math.sqrt(1 + m22 - m00 - m11) * 2;
-    q = [(m02 + m20) / s, (m12 + m21) / s, s / 4, (m10 - m01) / s];
+    qx = (m02 + m20) / s;
+    qy = (m12 + m21) / s;
+    qz = s / 4;
+    qw = (m10 - m01) / s;
   }
-  const length = Math.hypot(...q);
-  return q.map((value) => value / length) as Quat;
+  const length = Math.hypot(qx, qy, qz, qw);
+  return [qx / length, qy / length, qz / length, qw / length];
 }
 
 function matrixFromQuat([x, y, z, w]: Quat): Frame['r'] {
@@ -185,10 +197,13 @@ function matrixFromQuat([x, y, z, w]: Quat): Frame['r'] {
 
 function nlerp(a: Quat, b: Quat, t: number): Quat {
   const dot = a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3];
-  const end = dot < 0 ? b.map((value) => -value) as Quat : b;
-  const mixed = a.map((value, index) => value + (end[index] - value) * t) as Quat;
-  const length = Math.hypot(...mixed);
-  return mixed.map((value) => value / length) as Quat;
+  const end = dot < 0 ? [-b[0], -b[1], -b[2], -b[3]] as Quat : b;
+  const mx = a[0] + (end[0] - a[0]) * t;
+  const my = a[1] + (end[1] - a[1]) * t;
+  const mz = a[2] + (end[2] - a[2]) * t;
+  const mw = a[3] + (end[3] - a[3]) * t;
+  const length = Math.hypot(mx, my, mz, mw);
+  return [mx / length, my / length, mz / length, mw / length];
 }
 
 function slerp(a: Quat, b: Quat, t: number): Quat {
@@ -203,7 +218,7 @@ function slerp(a: Quat, b: Quat, t: number): Quat {
   const sin = Math.sin(theta);
   const wa = Math.sin((1 - t) * theta) / sin;
   const wb = Math.sin(t * theta) / sin;
-  return a.map((value, index) => value * wa + end[index] * wb) as Quat;
+  return [a[0] * wa + end[0] * wb, a[1] * wa + end[1] * wb, a[2] * wa + end[2] * wb, a[3] * wa + end[3] * wb];
 }
 
 /** The rotation fraction t of the short way from a to b. */
@@ -258,7 +273,11 @@ export function sampleTrack(keys: readonly TrackKey[] | undefined, t: number): F
   if (!to) return { p: [...from.p], r: matrixFromQuat(from.q) };
   const alpha = easeAlpha(from.style, from.direction, (t - from.time) / (to.time - from.time));
   return {
-    p: [0, 1, 2].map((axis) => from.p[axis] + (to.p[axis] - from.p[axis]) * alpha) as Frame['p'],
+    p: [
+      from.p[0] + (to.p[0] - from.p[0]) * alpha,
+      from.p[1] + (to.p[1] - from.p[1]) * alpha,
+      from.p[2] + (to.p[2] - from.p[2]) * alpha,
+    ],
     r: matrixFromQuat(slerp(from.q, to.q, alpha)),
   };
 }
