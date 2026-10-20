@@ -235,6 +235,7 @@ interface DerivedElement {
   hasGeometryFacts: boolean;
   geometryInvalid: boolean;
   scrollWindow: UIRect | null;
+  parent?: DerivedElement;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -340,31 +341,63 @@ function roleFor(className: string): UIRole {
 }
 
 function compareElements(left: RawUIElement, right: RawUIElement): number {
-  const keys = [
-    stringValue(left.path) ?? '', stringValue(left.ref) ?? '', stringValue(left.className) ?? '', stringValue(left.name) ?? '',
-    stringValue(right.path) ?? '', stringValue(right.ref) ?? '', stringValue(right.className) ?? '', stringValue(right.name) ?? '',
-  ];
-  for (let index = 0; index < 4; index++) {
-    const comparison = keys[index].localeCompare(keys[index + 4]);
-    if (comparison !== 0) return comparison;
-  }
-  const depth = (finiteNumber(left.depth) ?? 0) - (finiteNumber(right.depth) ?? 0);
-  if (depth !== 0) return depth;
-  const leftPosition = vector(left.absolutePosition);
-  const rightPosition = vector(right.absolutePosition);
-  const parentPath = (stringValue(left.parentPath) ?? '').localeCompare(stringValue(right.parentPath) ?? '');
-  if (parentPath !== 0) return parentPath;
-  const parentRef = (stringValue(left.parentRef) ?? '').localeCompare(stringValue(right.parentRef) ?? '');
-  if (parentRef !== 0) return parentRef;
-  const positionX = (leftPosition?.x ?? Number.NEGATIVE_INFINITY) - (rightPosition?.x ?? Number.NEGATIVE_INFINITY);
-  if (positionX !== 0) return positionX;
-  const positionY = (leftPosition?.y ?? Number.NEGATIVE_INFINITY) - (rightPosition?.y ?? Number.NEGATIVE_INFINITY);
-  if (positionY !== 0) return positionY;
-  const leftSize = vector(left.absoluteSize);
-  const rightSize = vector(right.absoluteSize);
-  return (leftSize?.x ?? Number.NEGATIVE_INFINITY) - (rightSize?.x ?? Number.NEGATIVE_INFINITY) ||
-    (leftSize?.y ?? Number.NEGATIVE_INFINITY) - (rightSize?.y ?? Number.NEGATIVE_INFINITY) ||
-    (stringValue(left.textContent) ?? stringValue(left.text) ?? '').localeCompare(stringValue(right.textContent) ?? stringValue(right.text) ?? '');
+  const leftPath = typeof left.path === 'string' ? left.path : '';
+  const rightPath = typeof right.path === 'string' ? right.path : '';
+  if (leftPath !== rightPath) return leftPath < rightPath ? -1 : 1;
+
+  const leftRef = typeof left.ref === 'string' ? left.ref : '';
+  const rightRef = typeof right.ref === 'string' ? right.ref : '';
+  if (leftRef !== rightRef) return leftRef < rightRef ? -1 : 1;
+
+  const leftClass = typeof left.className === 'string' ? left.className : '';
+  const rightClass = typeof right.className === 'string' ? right.className : '';
+  if (leftClass !== rightClass) return leftClass < rightClass ? -1 : 1;
+
+  const leftName = typeof left.name === 'string' ? left.name : '';
+  const rightName = typeof right.name === 'string' ? right.name : '';
+  if (leftName !== rightName) return leftName < rightName ? -1 : 1;
+
+  const leftDepth = typeof left.depth === 'number' && Number.isFinite(left.depth) ? left.depth : 0;
+  const rightDepth = typeof right.depth === 'number' && Number.isFinite(right.depth) ? right.depth : 0;
+  const depthDiff = leftDepth - rightDepth;
+  if (depthDiff !== 0) return depthDiff;
+
+  const leftParentPath = typeof left.parentPath === 'string' ? left.parentPath : '';
+  const rightParentPath = typeof right.parentPath === 'string' ? right.parentPath : '';
+  if (leftParentPath !== rightParentPath) return leftParentPath < rightParentPath ? -1 : 1;
+
+  const leftParentRef = typeof left.parentRef === 'string' ? left.parentRef : '';
+  const rightParentRef = typeof right.parentRef === 'string' ? right.parentRef : '';
+  if (leftParentRef !== rightParentRef) return leftParentRef < rightParentRef ? -1 : 1;
+
+  const leftPos = isRecord(left.absolutePosition) ? left.absolutePosition : undefined;
+  const rightPos = isRecord(right.absolutePosition) ? right.absolutePosition : undefined;
+  const leftPosX = leftPos && typeof leftPos.x === 'number' && Number.isFinite(leftPos.x) ? leftPos.x : Number.NEGATIVE_INFINITY;
+  const rightPosX = rightPos && typeof rightPos.x === 'number' && Number.isFinite(rightPos.x) ? rightPos.x : Number.NEGATIVE_INFINITY;
+  const posXDiff = leftPosX - rightPosX;
+  if (posXDiff !== 0) return posXDiff;
+
+  const leftPosY = leftPos && typeof leftPos.y === 'number' && Number.isFinite(leftPos.y) ? leftPos.y : Number.NEGATIVE_INFINITY;
+  const rightPosY = rightPos && typeof rightPos.y === 'number' && Number.isFinite(rightPos.y) ? rightPos.y : Number.NEGATIVE_INFINITY;
+  const posYDiff = leftPosY - rightPosY;
+  if (posYDiff !== 0) return posYDiff;
+
+  const leftSize = isRecord(left.absoluteSize) ? left.absoluteSize : undefined;
+  const rightSize = isRecord(right.absoluteSize) ? right.absoluteSize : undefined;
+  const leftSizeX = leftSize && typeof leftSize.x === 'number' && Number.isFinite(leftSize.x) ? leftSize.x : Number.NEGATIVE_INFINITY;
+  const rightSizeX = rightSize && typeof rightSize.x === 'number' && Number.isFinite(rightSize.x) ? rightSize.x : Number.NEGATIVE_INFINITY;
+  const sizeXDiff = leftSizeX - rightSizeX;
+  if (sizeXDiff !== 0) return sizeXDiff;
+
+  const leftSizeY = leftSize && typeof leftSize.y === 'number' && Number.isFinite(leftSize.y) ? leftSize.y : Number.NEGATIVE_INFINITY;
+  const rightSizeY = rightSize && typeof rightSize.y === 'number' && Number.isFinite(rightSize.y) ? rightSize.y : Number.NEGATIVE_INFINITY;
+  const sizeYDiff = leftSizeY - rightSizeY;
+  if (sizeYDiff !== 0) return sizeYDiff;
+
+  const leftText = typeof left.textContent === 'string' ? left.textContent : (typeof left.text === 'string' ? left.text : '');
+  const rightText = typeof right.textContent === 'string' ? right.textContent : (typeof right.text === 'string' ? right.text : '');
+  if (leftText !== rightText) return leftText < rightText ? -1 : 1;
+  return 0;
 }
 
 function textFor(raw: RawUIElement): NormalizedUIText | undefined {
@@ -416,13 +449,26 @@ function isScrollGeometryInvalid(raw: RawUIElement): boolean {
 
 function parentFor(item: DerivedElement, byRef: Map<string, DerivedElement>, byPath: Map<string, DerivedElement>): DerivedElement | undefined {
   const semanticRef = stringValue(item.raw.semanticParentRef);
+  if (semanticRef) {
+    const found = byRef.get(semanticRef);
+    if (found) return found;
+  }
   const semanticPath = stringValue(item.raw.semanticParentPath);
+  if (semanticPath) {
+    const found = byPath.get(semanticPath);
+    if (found) return found;
+  }
   const ref = stringValue(item.raw.parentRef);
+  if (ref) {
+    const found = byRef.get(ref);
+    if (found) return found;
+  }
   const path = stringValue(item.raw.parentPath);
-  return (semanticRef ? byRef.get(semanticRef) : undefined) ??
-    (semanticPath ? byPath.get(semanticPath) : undefined) ??
-    (ref ? byRef.get(ref) : undefined) ??
-    (path ? byPath.get(path) : undefined);
+  if (path) {
+    const found = byPath.get(path);
+    if (found) return found;
+  }
+  return undefined;
 }
 
 /**
@@ -534,9 +580,13 @@ export function normalizeUIInspection(raw: RawUIInspection, options: NormalizeUI
   }
 
   for (const item of derived) {
+    item.parent = parentFor(item, byRef, byPath);
+  }
+
+  for (const item of derived) {
     const ancestors: DerivedElement[] = [];
     const seen = new Set<DerivedElement>([item]);
-    for (let parent = parentFor(item, byRef, byPath); parent && !seen.has(parent); parent = parentFor(parent, byRef, byPath)) {
+    for (let parent = item.parent; parent && !seen.has(parent); parent = parent.parent) {
       ancestors.push(parent);
       seen.add(parent);
     }
