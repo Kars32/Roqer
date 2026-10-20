@@ -94,11 +94,14 @@ export function RojoPill({ instanceId, placeName, refreshSignal }: { instanceId:
     <button
       className={`rojo-pill${visual.muted ? " muted" : ""}${tone !== "none" ? ` tone-${tone}` : ""}`}
       onClick={() => setOpen((value) => !value)}
+      aria-expanded={open}
+      aria-haspopup="dialog"
+      aria-label={`Rojo status: ${visual.label}`}
     >
       <span className="connection-label">{visual.label}</span>
       <ChevronDown size={15} />
     </button>
-    {open && <div className={`rojo-popover${tone !== "none" ? ` tone-${tone}` : ""}`}>
+    {open && <div className={`rojo-popover${tone !== "none" ? ` tone-${tone}` : ""}`} role="dialog" aria-label="Rojo connection details">
       {headline !== undefined &&
         <p className="rojo-popover-headline" role={view.state === "error" ? "alert" : undefined}>{headline}</p>}
 
