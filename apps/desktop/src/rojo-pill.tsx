@@ -93,6 +93,8 @@ export function RojoPill({ instanceId, placeName, refreshSignal }: { instanceId:
   return <div className="rojo-wrap" ref={wrapRef}>
     <button
       className={`rojo-pill${visual.muted ? " muted" : ""}${tone !== "none" ? ` tone-${tone}` : ""}`}
+      aria-expanded={open}
+      aria-haspopup="true"
       onClick={() => setOpen((value) => !value)}
     >
       <span className="connection-label">{visual.label}</span>
