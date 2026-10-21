@@ -161,9 +161,24 @@ function decompressLz4Block(input: Buffer, outputLength: number): Buffer {
     if (outputOffset + matchLength > output.length) {
       throw new Error('Invalid LZ4 chunk: match exceeds output boundary');
     }
-    for (let index = 0; index < matchLength; index += 1) {
-      output[outputOffset] = output[outputOffset - matchOffset];
-      outputOffset += 1;
+    // Bolt optimization: replace byte-by-byte iteration with native Buffer operations.
+    // Non-overlapping matches can be copied in a single native C++ memcpy operation.
+    // RLE matches (matchOffset === 1) can use Buffer.fill.
+    // Overlapping matches (matchOffset < matchLength) are copied in chunks of matchOffset.
+    if (matchOffset >= matchLength) {
+      output.copy(output, outputOffset, outputOffset - matchOffset, outputOffset - matchOffset + matchLength);
+      outputOffset += matchLength;
+    } else if (matchOffset === 1) {
+      output.fill(output[outputOffset - 1], outputOffset, outputOffset + matchLength);
+      outputOffset += matchLength;
+    } else {
+      let copied = 0;
+      while (copied < matchLength) {
+        const chunk = Math.min(matchOffset, matchLength - copied);
+        output.copy(output, outputOffset + copied, outputOffset - matchOffset + copied, outputOffset - matchOffset + copied + chunk);
+        copied += chunk;
+      }
+      outputOffset += matchLength;
     }
   }
 

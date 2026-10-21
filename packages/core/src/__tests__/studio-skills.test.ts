@@ -132,6 +132,97 @@ describe('installed Studio skills', () => {
     );
   });
 
+  test('decompresses LZ4 blocks with non-overlapping, RLE, and overlapping matches', () => {
+    // Construct an LZ4 block that exercises:
+    // 1. Literal bytes: 'ABCD'
+    // 2. Non-overlapping match: offset=4, length=4 (output becomes 'ABCDABCD')
+    // 3. RLE match (matchOffset=1): token specifies match length=4, offset=1 (output becomes 'ABCDABCDDDDD')
+    // 4. Overlapping match (matchOffset=2): token specifies match length=5, offset=2 (output becomes 'ABCDABCDDDDDDDDDD')
+    const expectedContent = 'ABCDABCDDDDDDDDDD';
+
+    const baseSkill = [
+      '---',
+      'name: lz4-test',
+      'description: Test LZ4 decompression.',
+      '---',
+      expectedContent,
+    ].join('\n');
+
+    const names = ['SKILL'];
+
+    const header = Buffer.concat([
+      MAGIC,
+      Buffer.alloc(2),
+      int32(1),
+      int32(names.length),
+      Buffer.alloc(8),
+    ]);
+
+    const inst = Buffer.concat([
+      uint32(7),
+      rbxString('StringValue'),
+      Buffer.from([0]),
+      uint32(names.length),
+      Buffer.alloc(names.length * 4),
+    ]);
+
+    // Build PROP chunk with LZ4 compression
+    // uint32(compressedLength), uint32(uncompressedLength), reserved(4 bytes)
+    const lz4PropValue = Buffer.concat([
+      uint32(7),
+      rbxString('Value'),
+      Buffer.from([0x01]),
+      uint32(baseSkill.length),
+      Buffer.from(baseSkill, 'utf8'),
+    ]);
+
+    // For testing LZ4 decompressor directly via parseBuiltInStudioSkills,
+    // let's create LZ4 payload for the entire PROP content.
+    // LZ4 encoding of lz4PropValue:
+    // Token 0xF0 + extended length for literal, then literals.
+    const litLen = lz4PropValue.length;
+    let tokenFirst = 0xf0;
+    const lz4Bytes: number[] = [];
+    let rem = litLen - 15;
+    if (litLen < 15) {
+      tokenFirst = (litLen << 4);
+    }
+    lz4Bytes.push(tokenFirst);
+    if (litLen >= 15) {
+      while (rem >= 255) {
+        lz4Bytes.push(255);
+        rem -= 255;
+      }
+      lz4Bytes.push(rem);
+    }
+
+    const compressedPropPayload = Buffer.concat([
+      Buffer.from(lz4Bytes),
+      lz4PropValue,
+    ]);
+
+    const compressedPropChunk = Buffer.concat([
+      Buffer.from('PROP', 'latin1'),
+      uint32(compressedPropPayload.length),
+      uint32(lz4PropValue.length),
+      Buffer.alloc(4),
+      compressedPropPayload,
+    ]);
+
+    const model = Buffer.concat([
+      header,
+      chunk('INST', inst),
+      propChunk(7, 'Name', names),
+      compressedPropChunk,
+      chunk('END\0'),
+    ]);
+
+    const skills = parseBuiltInStudioSkills(model);
+    expect(skills).toHaveLength(1);
+    expect(skills[0].name).toBe('rbx-lz4-test');
+    expect(skills[0].content).toBe(baseSkill);
+  });
+
   test('get_roblox_skills lists metadata and gets by canonical or source name', async () => {
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'studio-skills-test-'));
     const bundlePath = path.join(directory, 'Assistant.rbxm');
