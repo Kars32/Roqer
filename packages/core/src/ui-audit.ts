@@ -110,9 +110,10 @@ function paintedRect(element: NormalizedUIElement): UIRect | null {
 
 class UITree {
   private readonly byRef = new Map<string, NormalizedUIElement>();
-  // Bolt optimization: Memoize ancestor chains per element to avoid repeated
-  // O(depth) tree traversals and array allocations during N^2 overlap checks.
+  // Bolt optimization: Memoize ancestor chains and ancestor Sets per element to avoid repeated
+  // O(depth) tree traversals, array allocations, and O(depth) searches during N^2 overlap checks.
   private readonly chains = new Map<NormalizedUIElement, NormalizedUIElement[]>();
+  private readonly ancestorSets = new Map<NormalizedUIElement, Set<NormalizedUIElement>>();
 
   constructor(readonly elements: readonly NormalizedUIElement[]) {
     for (const element of elements) if (element.ref) this.byRef.set(element.ref, element);
@@ -135,9 +136,19 @@ class UITree {
     return chain;
   }
 
+  /** Set of ancestors for O(1) membership lookup. */
+  ancestors(element: NormalizedUIElement): Set<NormalizedUIElement> {
+    let set = this.ancestorSets.get(element);
+    if (!set) {
+      set = new Set(this.chain(element));
+      this.ancestorSets.set(element, set);
+    }
+    return set;
+  }
+
   isAncestor(ancestor: NormalizedUIElement, element: NormalizedUIElement): boolean {
     if (ancestor === element) return false;
-    return this.chain(element).includes(ancestor);
+    return this.ancestors(element).has(ancestor);
   }
 
   /**
@@ -204,13 +215,17 @@ function overlapIssues(tree: UITree): UIAuditIssue[] {
     let covered: { by: NormalizedUIElement; share: number } | undefined;
     let straddled: { by: NormalizedUIElement; share: number; above: boolean | undefined } | undefined;
     for (const other of tree.elements) {
-      if (other === text || tree.isAncestor(other, text) || tree.isAncestor(text, other)) continue;
-      const otherInk = inks.get(other) ?? null;
+      if (other === text) continue;
       const painted = paintedBoxes.get(other) ?? null;
       if (!painted) continue;
+      // Bolt optimization: Early bounding box check avoids expensive ancestor traversals for non-overlapping elements.
+      const overlapBox = intersect(ink, painted);
+      if (!overlapBox) continue;
+      if (tree.isAncestor(other, text) || tree.isAncestor(text, other)) continue;
+      const otherInk = inks.get(other) ?? null;
       const otherPaintedRect = rawPainted.get(other) ?? null;
       if (otherInk && !otherPaintedRect && isShadowOf(other, text, otherInk, fullInk)) continue;
-      const share = areaOf(intersect(ink, painted)) / areaOf(ink);
+      const share = areaOf(overlapBox) / areaOf(ink);
       if (share < MIN_INK_SHARE) continue;
       const above = tree.drawsAbove(other, text);
       if (above === true) {
