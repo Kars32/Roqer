@@ -1405,23 +1405,57 @@ export class StudioInstanceManager {
   async list(): Promise<ManagedStudioInstance[]> {
     const snapshot = await this.getProcessSnapshot();
     await this.sweepRegistry(snapshot);
-    for (const record of [...this.managedByInstanceId.values(), ...this.pending]) {
-      await this.refresh(record, snapshot);
+
+    const memoryRecords = [...this.managedByInstanceId.values(), ...this.pending];
+    // Refresh each unique record instance once.
+    const refreshedRecords = new Set<ManagedStudioInstance>();
+    for (const record of memoryRecords) {
+      if (!refreshedRecords.has(record)) {
+        refreshedRecords.add(record);
+        await this.refresh(record, snapshot);
+      }
     }
-    const records = [...this.managedByInstanceId.values(), ...this.pending];
+
+    // Performance optimization: track seen IDs and instance references in Sets
+    // to replace O(N^2) array.some and array.indexOf linear searches with O(1) lookups.
+    const records: ManagedStudioInstance[] = [];
+    const seenRecordIds = new Set<string>();
+    const seenInstanceIds = new Set<string>();
+    const seenInstances = new Set<ManagedStudioInstance>();
+
+    for (const record of memoryRecords) {
+      if (seenInstances.has(record)) continue;
+      seenInstances.add(record);
+
+      const isDuplicateId =
+        (record.recordId !== undefined && seenRecordIds.has(record.recordId)) ||
+        (record.instanceId !== undefined && seenInstanceIds.has(record.instanceId));
+
+      if (record.recordId !== undefined) seenRecordIds.add(record.recordId);
+      if (record.instanceId !== undefined) seenInstanceIds.add(record.instanceId);
+
+      if (record.closedAt === undefined && !isDuplicateId) {
+        records.push(record);
+      }
+    }
+
     for (const registryRecord of await this.registry.listOpenUnchecked()) {
-      const record = this.fromRegistryRecord(registryRecord);
-      if (records.some((existing) =>
-        (record.recordId && existing.recordId === record.recordId) ||
-        (record.instanceId && existing.instanceId === record.instanceId)
-      )) {
+      if (
+        (registryRecord.recordId !== undefined && seenRecordIds.has(registryRecord.recordId)) ||
+        (registryRecord.instanceId !== undefined && seenInstanceIds.has(registryRecord.instanceId))
+      ) {
         continue;
       }
-      records.push(record);
+      const record = this.fromRegistryRecord(registryRecord);
+      if (record.recordId !== undefined) seenRecordIds.add(record.recordId);
+      if (record.instanceId !== undefined) seenInstanceIds.add(record.instanceId);
+
+      if (record.closedAt === undefined) {
+        records.push(record);
+      }
     }
-    return records
-      .filter((record) => record.closedAt === undefined)
-      .filter((instance, index, all) => all.indexOf(instance) === index);
+
+    return records;
   }
 
   async get(instanceId: string): Promise<ManagedStudioInstance | undefined> {
