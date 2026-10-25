@@ -549,7 +549,7 @@ function ModelRow({ model, format, open, test, testLabel, canTest, onToggle, onC
   return <div className={`custom-model ${open ? "open" : ""}`}>
     <div className="custom-model-line">
       <button type="button" className="custom-model-summary" aria-expanded={open} onClick={onToggle}>
-        <ChevronDown size={14} className="custom-model-chevron" />
+        <ChevronDown size={14} className="custom-model-chevron" aria-hidden="true" />
         <span className="custom-model-name">
           <strong>{name}</strong>
           {id !== "" && id !== name && <code>{id}</code>}
