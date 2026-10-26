@@ -1319,7 +1319,7 @@ function App() {
         </div>
         <div className="sidebar-section-heading">
           <span>Projects</span>
-          <button className="icon-button dark" title="Create project" onClick={() => setDialog({ kind: "create-project" })}><FolderPlus size={17} /></button>
+          <button className="icon-button dark" title="Create project" aria-label="Create project" onClick={() => setDialog({ kind: "create-project" })}><FolderPlus size={17} /></button>
         </div>
         <button className="new-chat-button" onClick={newChat}><Plus size={18} /> New chat <span className="shortcut">{SEND_MODIFIER} N</span></button>
         <nav className="folder-list" aria-label="Project folders">
@@ -1817,7 +1817,7 @@ const SUGGESTIONS = [
 ];
 
 function EmptyConversation({ onSuggestion }: { onSuggestion: (value: string) => void }) {
-  return <div className="empty-conversation"><div className="empty-illustration"><Sparkles size={27} /></div><h1>Explore your place</h1><p>Ask about the connected place, its scripts, or project structure.</p><div className="suggestion-grid">{SUGGESTIONS.map((suggestion) => <button key={suggestion} onClick={() => onSuggestion(suggestion)}><Zap size={15} />{suggestion}</button>)}</div></div>;
+  return <div className="empty-conversation"><div className="empty-illustration" aria-hidden="true"><Sparkles size={27} /></div><h1>Explore your place</h1><p>Ask about the connected place, its scripts, or project structure.</p><div className="suggestion-grid" role="group" aria-label="Suggested prompts">{SUGGESTIONS.map((suggestion) => <button key={suggestion} onClick={() => onSuggestion(suggestion)}><Zap size={15} aria-hidden="true" />{suggestion}</button>)}</div></div>;
 }
 
 /**
@@ -2470,10 +2470,10 @@ function OutcomeCard({ outcome, summary, note, warnings = false, issues = [] }: 
 }
 
 const TASK_ICON: Record<RunTaskStatus, React.ReactNode> = {
-  pending: <Circle size={13} />,
-  active: <CircleDot size={13} />,
-  done: <Check size={13} />,
-  blocked: <AlertCircle size={13} />,
+  pending: <Circle size={13} aria-hidden="true" />,
+  active: <CircleDot size={13} aria-hidden="true" />,
+  done: <Check size={13} aria-hidden="true" />,
+  blocked: <AlertCircle size={13} aria-hidden="true" />,
 };
 
 /**
