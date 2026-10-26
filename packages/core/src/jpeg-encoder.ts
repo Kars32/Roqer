@@ -55,28 +55,31 @@ const STD_AC_CHROMINANCE_VALUES = [
   0xf9, 0xfa,
 ];
 
-type BitCode = { code: number; length: number };
+type HuffmanTable = { code: Int32Array; len: Int32Array };
 
 class JpegEncoder {
   private YTable = new Int32Array(64);
   private UVTable = new Int32Array(64);
   private fdtbl_Y = new Float32Array(64);
   private fdtbl_UV = new Float32Array(64);
-  private YDC_HT!: BitCode[];
-  private UVDC_HT!: BitCode[];
-  private YAC_HT!: BitCode[];
-  private UVAC_HT!: BitCode[];
-  private bitcode: BitCode[] = new Array(65535);
+  private YDC_HT!: HuffmanTable;
+  private UVDC_HT!: HuffmanTable;
+  private YAC_HT!: HuffmanTable;
+  private UVAC_HT!: HuffmanTable;
+  private bitcode_code = new Int32Array(65535);
+  private bitcode_len = new Int32Array(65535);
   private category = new Int32Array(65535);
-  private outputfDCTQuant = new Float32Array(64);
+  private outputfDCTQuant = new Int32Array(64);
   private DU = new Int32Array(64);
 
   // RGB->YUV lookup tables
   private RGB_YUV_TABLE = new Int32Array(2048);
 
-  private byteout: number[] = [];
-  private bytenew = 0;
-  private bytepos = 7;
+  // Pre-allocated output buffer and bit accumulator to avoid GC and bit-by-bit iteration overhead
+  private outBuf = new Uint8Array(1024 * 1024);
+  private outPos = 0;
+  private bitBuf = 0;
+  private bitCnt = 0;
 
   constructor(quality: number) {
     this.initHuffmanTbl();
@@ -121,19 +124,22 @@ class JpegEncoder {
     }
   }
 
-  private computeHuffmanTbl(nrcodes: number[], std_table: number[]): BitCode[] {
+  private computeHuffmanTbl(nrcodes: number[], std_table: number[]): HuffmanTable {
     let codevalue = 0;
     let pos_in_table = 0;
-    const HT: BitCode[] = [];
+    const code = new Int32Array(256);
+    const len = new Int32Array(256);
     for (let k = 1; k <= 16; k++) {
       for (let j = 1; j <= nrcodes[k]; j++) {
-        HT[std_table[pos_in_table]] = { code: codevalue, length: k };
+        const val = std_table[pos_in_table];
+        code[val] = codevalue;
+        len[val] = k;
         pos_in_table++;
         codevalue++;
       }
       codevalue *= 2;
     }
-    return HT;
+    return { code, len };
   }
 
   private initHuffmanTbl() {
@@ -149,11 +155,13 @@ class JpegEncoder {
     for (let cat = 1; cat <= 15; cat++) {
       for (let nr = nrlower; nr < nrupper; nr++) {
         this.category[32767 + nr] = cat;
-        this.bitcode[32767 + nr] = { length: cat, code: nr };
+        this.bitcode_code[32767 + nr] = nr;
+        this.bitcode_len[32767 + nr] = cat;
       }
       for (let nrneg = -(nrupper - 1); nrneg <= -nrlower; nrneg++) {
         this.category[32767 + nrneg] = cat;
-        this.bitcode[32767 + nrneg] = { length: cat, code: nrupper - 1 + nrneg };
+        this.bitcode_code[32767 + nrneg] = nrupper - 1 + nrneg;
+        this.bitcode_len[32767 + nrneg] = cat;
       }
       nrlower <<= 1;
       nrupper <<= 1;
@@ -181,30 +189,33 @@ class JpegEncoder {
     this.initQuantTables(sf);
   }
 
-  private writeBits(bs: BitCode) {
-    const value = bs.code;
-    let posval = bs.length - 1;
-    while (posval >= 0) {
-      if (value & (1 << posval)) {
-        this.bytenew |= 1 << this.bytepos;
-      }
-      posval--;
-      this.bytepos--;
-      if (this.bytepos < 0) {
-        if (this.bytenew === 0xff) {
-          this.writeByte(0xff);
-          this.writeByte(0);
-        } else {
-          this.writeByte(this.bytenew);
-        }
-        this.bytepos = 7;
-        this.bytenew = 0;
+  // Optimized writeBits using bitwise shifting into an accumulator bitBuf
+  private writeBits(code: number, length: number) {
+    this.bitBuf = (this.bitBuf << length) | code;
+    this.bitCnt += length;
+    while (this.bitCnt >= 8) {
+      const byte = (this.bitBuf >> (this.bitCnt - 8)) & 0xff;
+      this.bitCnt -= 8;
+      // Ensure space for up to 2 bytes (0xff byte stuffing)
+      if (this.outPos + 1 >= this.outBuf.length) this.growOutput();
+      if (byte === 0xff) {
+        this.outBuf[this.outPos++] = 0xff;
+        this.outBuf[this.outPos++] = 0x00;
+      } else {
+        this.outBuf[this.outPos++] = byte;
       }
     }
   }
 
+  private growOutput() {
+    const next = new Uint8Array(this.outBuf.length * 2);
+    next.set(this.outBuf);
+    this.outBuf = next;
+  }
+
   private writeByte(value: number) {
-    this.byteout.push(value & 0xff);
+    if (this.outPos >= this.outBuf.length) this.growOutput();
+    this.outBuf[this.outPos++] = value & 0xff;
   }
 
   private writeWord(value: number) {
@@ -324,18 +335,20 @@ class JpegEncoder {
       const fDCTVal = data[i] * fdtbl[i];
       this.outputfDCTQuant[i] = fDCTVal > 0.0 ? (fDCTVal + 0.5) | 0 : (fDCTVal - 0.5) | 0;
     }
-    return this.outputfDCTQuant as unknown as Int32Array;
+    return this.outputfDCTQuant;
   }
 
   private processDU(
     CDU: Float32Array,
     fdtbl: Float32Array,
     DC: number,
-    HTDC: BitCode[],
-    HTAC: BitCode[],
+    HTDC: HuffmanTable,
+    HTAC: HuffmanTable,
   ): number {
-    const EOB = HTAC[0x00];
-    const M16zeroes = HTAC[0xf0];
+    const EOB_code = HTAC.code[0x00];
+    const EOB_len = HTAC.len[0x00];
+    const M16_code = HTAC.code[0xf0];
+    const M16_len = HTAC.len[0xf0];
     let pos;
     const I16 = 16;
     const I63 = 63;
@@ -347,16 +360,17 @@ class JpegEncoder {
     const Diff = this.DU[0] - DC;
     DC = this.DU[0];
     if (Diff === 0) {
-      this.writeBits(HTDC[0]);
+      this.writeBits(HTDC.code[0], HTDC.len[0]);
     } else {
       pos = 32767 + Diff;
-      this.writeBits(HTDC[this.category[pos]]);
-      this.writeBits(this.bitcode[pos]);
+      const cat = this.category[pos];
+      this.writeBits(HTDC.code[cat], HTDC.len[cat]);
+      this.writeBits(this.bitcode_code[pos], this.bitcode_len[pos]);
     }
     let end0pos = 63;
     for (; end0pos > 0 && this.DU[end0pos] === 0; end0pos--) {}
     if (end0pos === 0) {
-      this.writeBits(EOB);
+      this.writeBits(EOB_code, EOB_len);
       return DC;
     }
     let i = 1;
@@ -367,24 +381,26 @@ class JpegEncoder {
       let nrzeroes = i - startpos;
       if (nrzeroes >= I16) {
         lng = nrzeroes >> 4;
-        for (let nrmarker = 1; nrmarker <= lng; ++nrmarker) this.writeBits(M16zeroes);
+        for (let nrmarker = 1; nrmarker <= lng; ++nrmarker) this.writeBits(M16_code, M16_len);
         nrzeroes = nrzeroes & 0xf;
       }
       pos = 32767 + this.DU[i];
-      this.writeBits(HTAC[(nrzeroes << 4) + this.category[pos]]);
-      this.writeBits(this.bitcode[pos]);
+      const cat = this.category[pos];
+      const idx = (nrzeroes << 4) + cat;
+      this.writeBits(HTAC.code[idx], HTAC.len[idx]);
+      this.writeBits(this.bitcode_code[pos], this.bitcode_len[pos]);
       i++;
     }
     if (end0pos !== I63) {
-      this.writeBits(EOB);
+      this.writeBits(EOB_code, EOB_len);
     }
     return DC;
   }
 
   encode(rgba: Buffer, width: number, height: number): Buffer {
-    this.byteout = [];
-    this.bytenew = 0;
-    this.bytepos = 7;
+    this.outPos = 0;
+    this.bitBuf = 0;
+    this.bitCnt = 0;
 
     // Headers
     this.writeWord(0xffd8); // SOI
@@ -459,8 +475,8 @@ class JpegEncoder {
     let DCY = 0;
     let DCU = 0;
     let DCV = 0;
-    this.bytenew = 0;
-    this.bytepos = 7;
+    this.bitBuf = 0;
+    this.bitCnt = 0;
 
     const YDU = new Float32Array(64);
     const UDU = new Float32Array(64);
@@ -502,13 +518,16 @@ class JpegEncoder {
     }
 
     // Flush remaining bits
-    if (this.bytepos >= 0) {
-      const fillbits: BitCode = { length: this.bytepos + 1, code: (1 << (this.bytepos + 1)) - 1 };
-      this.writeBits(fillbits);
+    if (this.bitCnt > 0) {
+      const len = 8 - (this.bitCnt & 7);
+      if (len < 8) {
+        this.writeBits((1 << len) - 1, len);
+      }
     }
     this.writeWord(0xffd9); // EOI
 
-    return Buffer.from(this.byteout);
+    // Copy the encoded slice into a fresh Buffer so reusing this encoder instance is thread/call-safe
+    return Buffer.from(this.outBuf.subarray(0, this.outPos));
   }
 }
 
