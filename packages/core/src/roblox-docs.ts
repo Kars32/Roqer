@@ -25,8 +25,13 @@ interface CacheEntry {
   notFound?: boolean;
 }
 
+interface CatalogEntry {
+  page: DocRecommendation;
+  candidate: string;
+}
+
 const cache = new Map<string, CacheEntry>();
-let catalogCache: { fetchedAt: number; pages: DocRecommendation[] } | undefined;
+let catalogCache: { fetchedAt: number; entries: CatalogEntry[] } | undefined;
 
 export function isDocCategory(value: string): value is DocCategory {
   return (DOC_CATEGORIES as readonly string[]).includes(value);
@@ -86,27 +91,41 @@ function queryNameVariants(value: string): string[] {
   return Array.from(variants).filter(Boolean);
 }
 
+// Reusable work buffer for edit distance calculations to prevent array allocations during catalog matching.
+const editDistanceWorkBuffer = new Int32Array(256);
+
 function editDistance(left: string, right: string): number {
-  const previous = Array.from({ length: right.length + 1 }, (_, index) => index);
-  for (let i = 1; i <= left.length; i++) {
-    let diagonal = previous[0];
-    previous[0] = i;
-    for (let j = 1; j <= right.length; j++) {
-      const above = previous[j];
-      previous[j] = Math.min(
-        previous[j] + 1,
-        previous[j - 1] + 1,
-        diagonal + (left[i - 1] === right[j - 1] ? 0 : 1),
-      );
+  const m = left.length;
+  const n = right.length;
+  if (m === 0) return n;
+  if (n === 0) return m;
+
+  const row = n + 1 <= editDistanceWorkBuffer.length ? editDistanceWorkBuffer : new Int32Array(n + 1);
+  for (let j = 0; j <= n; j++) {
+    row[j] = j;
+  }
+  for (let i = 1; i <= m; i++) {
+    let diagonal = row[0];
+    row[0] = i;
+    const leftChar = left.charCodeAt(i - 1);
+    for (let j = 1; j <= n; j++) {
+      const above = row[j];
+      const cost = leftChar === right.charCodeAt(j - 1) ? 0 : 1;
+      let min = row[j] + 1;
+      const ins = row[j - 1] + 1;
+      if (ins < min) min = ins;
+      const sub = diagonal + cost;
+      if (sub < min) min = sub;
+      row[j] = min;
       diagonal = above;
     }
   }
-  return previous[right.length];
+  return row[n];
 }
 
-async function fetchDocCatalog(): Promise<DocRecommendation[]> {
+async function fetchDocCatalog(): Promise<CatalogEntry[]> {
   if (catalogCache && Date.now() - catalogCache.fetchedAt <= CACHE_TTL_MS) {
-    return catalogCache.pages;
+    return catalogCache.entries;
   }
 
   const controller = new AbortController();
@@ -125,19 +144,20 @@ async function fetchDocCatalog(): Promise<DocRecommendation[]> {
   }
 
   const html = await response.text();
-  const pages = new Map<string, DocRecommendation>();
+  const pages = new Map<string, CatalogEntry>();
   const routePattern = /reference\/engine\/(classes|enums|datatypes|libraries|globals)\/([A-Za-z0-9_]+)/g;
   for (const match of html.matchAll(routePattern)) {
     const category = match[1] as DocCategory;
     const name = match[2];
     const key = `${category}/${name}`;
-    pages.set(key, { category, name, url: docUrl(category, name) });
+    const page: DocRecommendation = { category, name, url: docUrl(category, name) };
+    pages.set(key, { page, candidate: normalizeDocName(name) });
   }
   const result = Array.from(pages.values());
   if (result.length === 0) {
     throw new Error('Roblox docs index did not contain any engine reference pages');
   }
-  catalogCache = { fetchedAt: Date.now(), pages: result };
+  catalogCache = { fetchedAt: Date.now(), entries: result };
   return result;
 }
 
@@ -149,17 +169,24 @@ export async function recommendRobloxDocs(
   const variants = queryNameVariants(name);
   const catalog = await fetchDocCatalog();
   return catalog
-    .map((page) => {
-      const candidate = normalizeDocName(page.name);
-      const similarity = Math.max(...variants.map((variant) => {
-        if (variant === candidate) return 2;
+    .map(({ page, candidate }) => {
+      // Find maximum similarity score across search variants without allocating temporary arrays per catalog item.
+      let maxSim = -Infinity;
+      for (let i = 0; i < variants.length; i++) {
+        const variant = variants[i];
+        if (variant === candidate) {
+          maxSim = 2;
+          break;
+        }
         const distance = editDistance(variant, candidate);
-        const ratio = 1 - distance / Math.max(variant.length, candidate.length, 1);
+        const maxLen = variant.length > candidate.length ? variant.length : candidate.length;
+        const ratio = 1 - distance / (maxLen || 1);
         const prefixBonus = variant.startsWith(candidate) || candidate.startsWith(variant) ? 0.15 : 0;
         const containsBonus = variant.includes(candidate) || candidate.includes(variant) ? 0.05 : 0;
-        return ratio + prefixBonus + containsBonus;
-      }));
-      return { page, score: similarity + (page.category === category ? 0.08 : 0) };
+        const score = ratio + prefixBonus + containsBonus;
+        if (score > maxSim) maxSim = score;
+      }
+      return { page, score: maxSim + (page.category === category ? 0.08 : 0) };
     })
     .sort((a, b) => b.score - a.score || a.page.name.localeCompare(b.page.name))
     .slice(0, Math.max(1, limit))
