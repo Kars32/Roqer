@@ -74,7 +74,10 @@ class JpegEncoder {
   // RGB->YUV lookup tables
   private RGB_YUV_TABLE = new Int32Array(2048);
 
-  private byteout: number[] = [];
+  // Optimization: Pre-allocate a typed array buffer instead of standard JS array push
+  // to prevent garbage collection overhead and dynamic array reallocation.
+  private byteout!: Uint8Array;
+  private byteoutOffset = 0;
   private bytenew = 0;
   private bytepos = 7;
 
@@ -204,7 +207,12 @@ class JpegEncoder {
   }
 
   private writeByte(value: number) {
-    this.byteout.push(value & 0xff);
+    if (this.byteoutOffset >= this.byteout.length) {
+      const next = new Uint8Array(Math.max(1024, this.byteout.length * 2));
+      next.set(this.byteout);
+      this.byteout = next;
+    }
+    this.byteout[this.byteoutOffset++] = value & 0xff;
   }
 
   private writeWord(value: number) {
@@ -382,7 +390,9 @@ class JpegEncoder {
   }
 
   encode(rgba: Buffer, width: number, height: number): Buffer {
-    this.byteout = [];
+    // Initial byte output capacity estimated from resolution (roughly 1 byte per pixel max)
+    this.byteout = new Uint8Array(width * height);
+    this.byteoutOffset = 0;
     this.bytenew = 0;
     this.bytepos = 7;
 
@@ -472,27 +482,57 @@ class JpegEncoder {
 
     for (let y = 0; y < height; y += 8) {
       for (let x = 0; x < width; x += 8) {
-        let start = quadWidth * y + x * 4;
-        for (let pos = 0; pos < 64; pos++) {
-          const row = pos >> 3;
-          const col = (pos & 7) * 4;
-          let p = start + row * quadWidth + col;
-          // Clamp to edges for non-multiple-of-8 dimensions.
-          if (y + row >= height) p -= quadWidth * (y + row - height + 1);
-          if (x + (col >> 2) >= width) p -= 4 * (x + (col >> 2) - width + 1);
+        if (x + 8 <= width && y + 8 <= height) {
+          // Fast path for non-boundary 8x8 macroblocks (avoids edge clamping logic)
+          let pos = 0;
+          for (let row = 0; row < 8; row++) {
+            let p = quadWidth * (y + row) + x * 4;
+            for (let col = 0; col < 8; col++) {
+              const r = rgba[p];
+              const g = rgba[p + 1];
+              const b = rgba[p + 2];
+              p += 4;
 
-          const r = rgba[p];
-          const g = rgba[p + 1];
-          const b = rgba[p + 2];
+              YDU[pos] =
+                ((RGB_YUV_TABLE[r] + RGB_YUV_TABLE[g + 256] + RGB_YUV_TABLE[b + 512]) >> 16) -
+                128;
+              UDU[pos] =
+                ((RGB_YUV_TABLE[r + 768] + RGB_YUV_TABLE[g + 1024] + RGB_YUV_TABLE[b + 1280]) >>
+                  16) -
+                128;
+              VDU[pos] =
+                ((RGB_YUV_TABLE[r + 1280] + RGB_YUV_TABLE[g + 1536] + RGB_YUV_TABLE[b + 1792]) >>
+                  16) -
+                128;
+              pos++;
+            }
+          }
+        } else {
+          // Slow path for boundary macroblocks with edge clamping
+          let start = quadWidth * y + x * 4;
+          for (let pos = 0; pos < 64; pos++) {
+            const row = pos >> 3;
+            const col = (pos & 7) * 4;
+            let p = start + row * quadWidth + col;
+            // Clamp to edges for non-multiple-of-8 dimensions.
+            if (y + row >= height) p -= quadWidth * (y + row - height + 1);
+            if (x + (col >> 2) >= width) p -= 4 * (x + (col >> 2) - width + 1);
 
-          YDU[pos] =
-            ((RGB_YUV_TABLE[r] + RGB_YUV_TABLE[g + 256] + RGB_YUV_TABLE[b + 512]) >> 16) - 128;
-          UDU[pos] =
-            ((RGB_YUV_TABLE[r + 768] + RGB_YUV_TABLE[g + 1024] + RGB_YUV_TABLE[b + 1280]) >> 16) -
-            128;
-          VDU[pos] =
-            ((RGB_YUV_TABLE[r + 1280] + RGB_YUV_TABLE[g + 1536] + RGB_YUV_TABLE[b + 1792]) >> 16) -
-            128;
+            const r = rgba[p];
+            const g = rgba[p + 1];
+            const b = rgba[p + 2];
+
+            YDU[pos] =
+              ((RGB_YUV_TABLE[r] + RGB_YUV_TABLE[g + 256] + RGB_YUV_TABLE[b + 512]) >> 16) - 128;
+            UDU[pos] =
+              ((RGB_YUV_TABLE[r + 768] + RGB_YUV_TABLE[g + 1024] + RGB_YUV_TABLE[b + 1280]) >>
+                16) -
+              128;
+            VDU[pos] =
+              ((RGB_YUV_TABLE[r + 1280] + RGB_YUV_TABLE[g + 1536] + RGB_YUV_TABLE[b + 1792]) >>
+                16) -
+              128;
+          }
         }
 
         DCY = this.processDU(YDU, fdtbl_Y, DCY, this.YDC_HT, this.YAC_HT);
@@ -508,7 +548,7 @@ class JpegEncoder {
     }
     this.writeWord(0xffd9); // EOI
 
-    return Buffer.from(this.byteout);
+    return Buffer.from(this.byteout.buffer, 0, this.byteoutOffset);
   }
 }
 
