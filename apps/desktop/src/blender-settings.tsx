@@ -43,7 +43,7 @@ export function BlenderSettings() {
         title={settings.version ?? "Blender app"}
         detail={settings.executable === null ? "Not found yet" : <code className="settings-path" title={settings.executable}>{settings.executable}</code>}
       >
-        <button className="small-button" disabled={busy} onClick={() => void apply(chooseBlender)}>Choose…</button>
+        <button className="small-button" disabled={busy} onClick={() => void apply(chooseBlender)} aria-label="Choose Blender application path">Choose…</button>
       </SettingsRow>
     </SettingsGroup>
     {error && <p className="custom-message error">{error}</p>}
