@@ -36,14 +36,28 @@ export function locateScript(
   }
   let node = tree;
   for (const segment of segments) {
-    const matches = (node.children ?? []).filter((child) => child.name === segment);
-    if (matches.length === 0) {
+    // Avoid intermediate array allocation from node.children.filter() and short-circuit when >1 match is found.
+    const children = node.children;
+    if (!children) {
       return { persistence: 'studio_only', reason: `${segment} is not in the Rojo project; this edit is saved in Studio only` };
     }
-    if (matches.length > 1) {
-      return { persistence: 'unsupported', reason: `the project has ${matches.length} instances named ${segment} under ${node.name}, so the file is ambiguous` };
+    let match: SourcemapNode | undefined;
+    let matchCount = 0;
+    for (let index = 0; index < children.length; index += 1) {
+      if (children[index].name === segment) {
+        matchCount += 1;
+        if (matchCount === 1) {
+          match = children[index];
+        }
+      }
     }
-    node = matches[0];
+    if (matchCount === 0 || !match) {
+      return { persistence: 'studio_only', reason: `${segment} is not in the Rojo project; this edit is saved in Studio only` };
+    }
+    if (matchCount > 1) {
+      return { persistence: 'unsupported', reason: `the project has ${matchCount} instances named ${segment} under ${node.name}, so the file is ambiguous` };
+    }
+    node = match;
   }
   if (!SCRIPT_CLASSES.has(node.className)) {
     return { persistence: 'unsupported', reason: `the project makes this a ${node.className}, not a script` };
@@ -51,14 +65,28 @@ export function locateScript(
   if (studioClassName !== undefined && node.className !== studioClassName) {
     return { persistence: 'unsupported', reason: `Studio has a ${studioClassName} but the project makes a ${node.className}; the class does not match` };
   }
-  const files = (node.filePaths ?? []).filter(isScriptFile);
-  if (files.length === 0) {
+  // Avoid intermediate array allocation from node.filePaths.filter() and short-circuit when >1 script file is found.
+  const filePaths = node.filePaths;
+  if (!filePaths) {
     return { persistence: 'unsupported', reason: 'this script comes from a model or project file, not a script file of its own' };
   }
-  if (files.length > 1) {
-    return { persistence: 'unsupported', reason: `this script has ${files.length} source files, so the one to write is ambiguous` };
+  let fileMatch: string | undefined;
+  let fileCount = 0;
+  for (let index = 0; index < filePaths.length; index += 1) {
+    if (isScriptFile(filePaths[index])) {
+      fileCount += 1;
+      if (fileCount === 1) {
+        fileMatch = filePaths[index];
+      }
+    }
   }
-  return { found: files[0] };
+  if (fileCount === 0 || !fileMatch) {
+    return { persistence: 'unsupported', reason: 'this script comes from a model or project file, not a script file of its own' };
+  }
+  if (fileCount > 1) {
+    return { persistence: 'unsupported', reason: `this script has ${fileCount} source files, so the one to write is ambiguous` };
+  }
+  return { found: fileMatch };
 }
 
 /**
@@ -93,11 +121,22 @@ export function checkFile(
 
 export function scriptFiles(tree: SourcemapNode): string[] {
   const found = new Set<string>();
+  // Avoid intermediate array allocations from `?? []` during recursive tree traversal.
   const visit = (node: SourcemapNode) => {
     if (SCRIPT_CLASSES.has(node.className)) {
-      for (const file of node.filePaths ?? []) if (isScriptFile(file)) found.add(file);
+      const filePaths = node.filePaths;
+      if (filePaths) {
+        for (let index = 0; index < filePaths.length; index += 1) {
+          if (isScriptFile(filePaths[index])) found.add(filePaths[index]);
+        }
+      }
     }
-    for (const child of node.children ?? []) visit(child);
+    const children = node.children;
+    if (children) {
+      for (let index = 0; index < children.length; index += 1) {
+        visit(children[index]);
+      }
+    }
   };
   visit(tree);
   return [...found];
