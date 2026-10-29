@@ -113,6 +113,7 @@ export const ResultsCard = memo(function ResultsCard({ runId, changes, evidence,
         className="results-collapse"
         aria-expanded={open}
         aria-controls={open ? panelId(active) : undefined}
+        aria-label={open ? "Fold the results" : "Show the results"}
         title={open ? "Fold the results" : "Show the results"}
         onClick={() => update((current) => ({ ...current, open: !current.open }))}
       >
