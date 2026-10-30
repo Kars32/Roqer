@@ -33,7 +33,7 @@ export function DiagnosticsActions({ endpoint, buttonClassName, icons = false }:
       {icons && <ClipboardCopy size={15} />}
       <span role="status">{copy === "copied" ? "Copied" : copy === "failed" ? "Could not copy" : "Copy diagnostics"}</span>
     </button>
-    <button type="button" className={buttonClassName} onClick={() => void showBridgeLog().catch(() => false)}>
+    <button type="button" className={buttonClassName} onClick={() => void showBridgeLog().catch(() => false)} title="Open the folder containing the Studio bridge log">
       {icons && <FolderOpen size={15} />} Show bridge log
     </button>
   </>;
