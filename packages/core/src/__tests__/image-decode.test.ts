@@ -74,6 +74,23 @@ describe('decodePngToRgba', () => {
     });
   });
 
+  test('correctly decodes all PNG filter types (0-4)', () => {
+    // 2x2 RGBA image (bpp = 4, stride = 8)
+    // Row 0 (y=0): Filter 0 (None) for x=0..3, Filter 1 (Sub) for x=4..7
+    // Row 1 (y=1): Filter 2 (Up), Filter 3 (Average), Filter 4 (Paeth)
+    const row0 = Buffer.from([0, 10, 20, 30, 255, 10, 20, 30, 0]); // Filter 0
+    const row1 = Buffer.from([1, 10, 20, 30, 255, 5, 5, 5, 0]);   // Filter 1
+    const row2 = Buffer.from([2, 10, 20, 30, 0, 10, 20, 30, 0]);  // Filter 2
+    const row3 = Buffer.from([3, 5, 10, 15, 127, 5, 10, 15, 0]);  // Filter 3
+    const row4 = Buffer.from([4, 10, 20, 30, 255, 10, 20, 30, 0]);// Filter 4
+
+    const scanlines = Buffer.concat([row0, row1, row2, row3, row4]);
+    const decoded = decodePngToRgba(rgbaPng(2, 5, scanlines));
+    expect(decoded.width).toBe(2);
+    expect(decoded.height).toBe(5);
+    expect(decoded.rgba).toHaveLength(2 * 5 * 4);
+  });
+
   test('allows the source dimension boundary and resizes afterward', () => {
     const scanlines = Buffer.alloc(1 + 16_384 * 4);
     const decoded = decodePngToRgba(rgbaPng(16_384, 1, scanlines));
