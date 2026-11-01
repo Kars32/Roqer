@@ -1319,7 +1319,7 @@ function App() {
         </div>
         <div className="sidebar-section-heading">
           <span>Projects</span>
-          <button className="icon-button dark" title="Create project" onClick={() => setDialog({ kind: "create-project" })}><FolderPlus size={17} /></button>
+          <button className="icon-button dark" title="Create project" aria-label="Create project" onClick={() => setDialog({ kind: "create-project" })}><FolderPlus size={17} /></button>
         </div>
         <button className="new-chat-button" onClick={newChat}><Plus size={18} /> New chat <span className="shortcut">{SEND_MODIFIER} N</span></button>
         <nav className="folder-list" aria-label="Project folders">
