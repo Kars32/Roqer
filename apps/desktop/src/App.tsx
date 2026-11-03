@@ -2387,7 +2387,7 @@ function ArtifactCard({ group, expanded, onExpandedChange, onOpenInStudio }: {
             {added > 0 && <span className="added">+{added}</span>}
             {removed > 0 && <span className="removed">−{removed}</span>}
           </div>}
-        <button className="diff-collapse" type="button" aria-expanded={expanded} aria-controls={expanded ? bodyId : undefined} title={expanded ? "Collapse this file" : "Expand this file"} onClick={() => onExpandedChange(!expanded)}>
+        <button className="diff-collapse" type="button" aria-expanded={expanded} aria-controls={expanded ? bodyId : undefined} title={expanded ? "Collapse this file" : "Expand this file"} aria-label={expanded ? "Collapse this file" : "Expand this file"} onClick={() => onExpandedChange(!expanded)}>
           <ChevronDown size={14} />
         </button>
       </div>
