@@ -162,6 +162,39 @@ test("a file too long to diff is refused rather than diffed slowly", () => {
   assert.equal(diffText(before, `${before}\nextra`), null);
 });
 
+test("prefix-only change produces correct diff with all trailing context preserved", () => {
+  const before = ["line0_old", "line1", "line2", "line3", "line4", "line5"];
+  const after = ["line0_new", "line1", "line2", "line3", "line4", "line5"];
+  const diff = diffText(before.join("\n"), after.join("\n"));
+  assert.ok(diff);
+  assert.deepEqual(changedLines(diff.text), ["-line0_old", "+line0_new"]);
+  assert.equal(diff.addedLines, 1);
+  assert.equal(diff.removedLines, 1);
+  assert.ok(accountsForEveryLine(diff.text, 6), diff.text);
+});
+
+test("suffix-only change produces correct diff with all leading context preserved", () => {
+  const before = ["line0", "line1", "line2", "line3", "line4", "line5_old"];
+  const after = ["line0", "line1", "line2", "line3", "line4", "line5_new"];
+  const diff = diffText(before.join("\n"), after.join("\n"));
+  assert.ok(diff);
+  assert.deepEqual(changedLines(diff.text), ["-line5_old", "+line5_new"]);
+  assert.equal(diff.addedLines, 1);
+  assert.equal(diff.removedLines, 1);
+  assert.ok(accountsForEveryLine(diff.text, 6), diff.text);
+});
+
+test("middle edit with repeating lines at prefix/suffix boundary diffs accurately", () => {
+  const before = ["repeat", "repeat", "unique_before", "repeat", "repeat"];
+  const after = ["repeat", "repeat", "unique_after", "repeat", "repeat"];
+  const diff = diffText(before.join("\n"), after.join("\n"));
+  assert.ok(diff);
+  assert.deepEqual(changedLines(diff.text), ["-unique_before", "+unique_after"]);
+  assert.equal(diff.addedLines, 1);
+  assert.equal(diff.removedLines, 1);
+  assert.ok(accountsForEveryLine(diff.text, 5), diff.text);
+});
+
 test("an empty file gaining content is all additions", () => {
   const diff = diffText("", "print('hi')");
   assert.ok(diff);
